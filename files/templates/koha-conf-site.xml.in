@@ -1,0 +1,508 @@
+<yazgfs>
+
+<listen id="biblioserver" >unix:/var/run/koha/__KOHASITE__/bibliosocket</listen>
+<listen id="authorityserver" >unix:/var/run/koha/__KOHASITE__/authoritysocket</listen>
+
+<!-- Uncomment the following entry if you want to run the public Z39.50 server.
+    Also uncomment the <server> and <serverinfo> sections for id 'publicserver'
+    under PUBLICSERVER'S BIBLIOGRAPHIC RECORDS title-->
+__START_SRU_PUBLICSERVER__
+<listen id="publicserver" >tcp:@:__SRU_BIBLIOS_PORT__</listen>
+__END_SRU_PUBLICSERVER__
+
+<!-- Settings for special biblio server instance for PazPar2.
+     Because PazPar2 only connects to a Z39.50 server using TCP/IP,
+     it cannot use the Unix-domain socket that biblioserver uses.
+     Therefore, a custom server is defined. -->
+<!--
+<listen id="mergeserver">tcp:@:__MERGE_SERVER_PORT__</listen>
+<server id="mergeserver"  listenref="mergeserver">
+    <directory>/var/lib/koha/__KOHASITE__/biblios</directory>
+    <config>/etc/koha/sites/__KOHASITE__/zebra-biblios-dom.cfg</config>
+    <cql2rpn>/var/lib/koha/__KOHASITE__/pqf.properties</cql2rpn>
+</server>
+-->
+
+<!-- BIBLIOGRAPHIC RECORDS -->
+<server id="biblioserver"  listenref="biblioserver">
+    <directory>/var/lib/koha/__KOHASITE__/biblios</directory>
+    <config>/etc/koha/sites/__KOHASITE__/zebra-biblios-dom.cfg</config>
+    <cql2rpn>/etc/koha/zebradb/pqf.properties</cql2rpn>
+
+  <xi:include href="/etc/koha/__ZEBRA_MARC_FORMAT__-retrieval-info-bib-dom.xml"
+              xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:fallback>
+      <retrievalinfo>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="F"/>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="B"/>
+       <retrieval syntax="xml" name="F"/>
+       <retrieval syntax="xml" name="B"/>
+       <retrieval syntax="xml" name="marcxml"
+                  identifier="info:srw/schema/1/marcxml-v1.1">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="dc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2DC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="mods">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2MODS.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="rdfdc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2RDFDC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="rss2">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2RSS2.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="utils">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slimUtils.xsl"/>
+         </backend>
+       </retrieval>
+      </retrievalinfo>
+    </xi:fallback>
+  </xi:include>
+
+    <!-- The stuff below is used to enable SRU. It's currently disabled
+         until we come up with a good way to make it get magically set up by
+         the packaging system. If you need it, uncomment and set it up
+         manually.
+    <xi:include href="/etc/koha/zebradb/explain-biblios.xml"
+                xmlns:xi="http://www.w3.org/2001/XInclude">
+      <xi:fallback>
+      <explain xmlns="http://explain.z3950.org/dtd/2.0/">
+          <serverInfo>
+            <host>__ZEBRA_SRU_HOST__</host>
+            <port>__ZEBRA_SRU_BIBLIOS_PORT__</port>
+            <database>biblios</database>
+          </serverInfo>
+        </explain>
+      </xi:fallback>
+    </xi:include> -->
+</server>
+<serverinfo id="biblioserver">
+        <ccl2rpn>/etc/koha/zebradb/ccl.properties</ccl2rpn>
+        <user>kohauser</user>
+        <password>__ZEBRA_PASS__</password>
+</serverinfo>
+
+<!-- AUTHORITY RECORDS -->
+<server id="authorityserver"  listenref="authorityserver" >
+    <directory>/var/lib/koha/__KOHASITE__/authorities</directory>
+    <config>/etc/koha/sites/__KOHASITE__/zebra-authorities-dom.cfg</config>
+    <cql2rpn>/etc/koha/zebradb/pqf.properties</cql2rpn>
+
+  <xi:include href="/etc/koha/__ZEBRA_MARC_FORMAT__-retrieval-info-auth-dom.xml"
+              xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:fallback>
+      <retrievalinfo>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="F"/>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="B"/>
+       <retrieval syntax="xml" name="marcxml"
+                  identifier="info:srw/schema/1/marcxml-v1.1">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="dc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2DC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="mods">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2MODS.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="rdfdc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2RDFDC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="utils">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slimUtils.xsl"/>
+         </backend>
+       </retrieval>
+      </retrievalinfo>
+    </xi:fallback>
+  </xi:include>
+
+    <!-- The stuff below is used to enable SRU. It's currently disabled
+         until we come up with a good way to make it get magically set up by
+         the packaging system. If you need it, uncomment and set it up
+         manually.
+    <xi:include href="/etc/koha/zebradb/explain-authorities.xml"
+                xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:fallback>
+      <explain xmlns="http://explain.z3950.org/dtd/2.0/">
+          <serverInfo>
+            <host>__ZEBRA_SRU_HOST__</host>
+            <port>__ZEBRA_SRU_AUTHORITIES_PORT__</port>
+            <database>authorities</database>
+          </serverInfo>
+        </explain>
+      </xi:fallback>
+  </xi:include> -->
+</server>
+<serverinfo id="authorityserver">
+    <ccl2rpn>/etc/koha/zebradb/ccl.properties</ccl2rpn>
+    <user>kohauser</user>
+    <password>__ZEBRA_PASS__</password>
+</serverinfo>
+
+<!-- PUBLICSERVER'S BIBLIOGRAPHIC RECORDS -->
+<!-- This can be used to set up a public Z39.50/SRU server. -->
+__START_SRU_PUBLICSERVER__
+<server id="publicserver"  listenref="publicserver">
+    <directory>/var/lib/koha/__KOHASITE__/biblios</directory>
+    <config>/etc/koha/sites/__KOHASITE__/zebra-biblios-dom.cfg</config>
+    <cql2rpn>/etc/koha/zebradb/pqf.properties</cql2rpn>
+
+  <xi:include href="/etc/koha/__ZEBRA_MARC_FORMAT__-retrieval-info-bib-dom.xml"
+              xmlns:xi="http://www.w3.org/2001/XInclude">
+    <xi:fallback>
+      <retrievalinfo>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="F"/>
+       <retrieval syntax="__ZEBRA_MARC_FORMAT__" name="B"/>
+       <retrieval syntax="xml" name="F"/>
+       <retrieval syntax="xml" name="B"/>
+       <retrieval syntax="xml" name="marcxml"
+                  identifier="info:srw/schema/1/marcxml-v1.1">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="dc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2DC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="mods">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2MODS.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="rdfdc">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2RDFDC.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="rss2">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slim2RSS2.xsl"/>
+         </backend>
+       </retrieval>
+       <retrieval syntax="xml" name="utils">
+         <backend syntax="__ZEBRA_MARC_FORMAT__" name="F">
+           <marc inputformat="marc" outputformat="marcxml"
+                 inputcharset="utf-8"/>
+           <xslt stylesheet="/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/xslt/MARC21slimUtils.xsl"/>
+         </backend>
+       </retrieval>
+      </retrievalinfo>
+    </xi:fallback>
+  </xi:include>
+
+    <xi:include href="/etc/koha/zebradb/explain-biblios.xml"
+                xmlns:xi="http://www.w3.org/2001/XInclude">
+      <xi:fallback>
+      <explain xmlns="http://explain.z3950.org/dtd/2.0/">
+          <serverInfo>
+            <host>__ZEBRA_SRU_HOST__</host>
+            <port>__ZEBRA_SRU_BIBLIOS_PORT__</port>
+            <database>biblios</database>
+          </serverInfo>
+        </explain>
+      </xi:fallback>
+    </xi:include>
+</server>
+<serverinfo id="publicserver">
+        <ccl2rpn>/etc/koha/zebradb/ccl.properties</ccl2rpn>
+        <user>kohauser</user>
+        <password>__ZEBRA_PASS__</password>
+</serverinfo>
+__END_SRU_PUBLICSERVER__
+
+<config>
+ <db_scheme>mysql</db_scheme>
+ <database>__DB_NAME__</database>
+ <hostname>__DB_HOST__</hostname>
+ <port>3306</port>
+ <user>__DB_USER__</user>
+ <pass>__DB_PASS__</pass>
+ <biblioserver>biblios</biblioserver>
+ <biblioservershadow>1</biblioservershadow>
+ <authorityserver>authorities</authorityserver>
+ <authorityservershadow>1</authorityservershadow>
+ <pluginsdir>__PLUGINS_DIR__</pluginsdir> <!-- This entry can be repeated to use multiple directories -->
+ <!--pluginsdir>YOUR_PLUGIN_DIR_HERE</pluginsdir-->
+ <enable_plugins>1</enable_plugins>
+ <upload_path>__UPLOAD_PATH__</upload_path>
+ <tmp_path>__TMP_PATH__</tmp_path>
+ <intranetdir>/usr/share/koha/intranet/cgi-bin</intranetdir>
+ <opacdir>/usr/share/koha/opac/cgi-bin/opac</opacdir>
+ <opachtdocs>/usr/share/koha/opac/htdocs/opac-tmpl</opachtdocs>
+ <intrahtdocs>/usr/share/koha/intranet/htdocs/intranet-tmpl</intrahtdocs>
+ <includes>/usr/share/koha/intranet/htdocs/intranet-tmpl/prog/en/includes/</includes>
+ <logdir>__LOG_DIR__</logdir>
+ <docdir>/usr/share/doc/koha-common</docdir>
+ <backupdir>/var/spool/koha/__KOHASITE__</backupdir>
+ <!-- URL of the mana KB server -->
+ <!-- alternative value http://mana-test.koha-community.org to query the test server -->
+ <mana_config>${MANA_URL}</mana_config>
+ <!-- Enable the two following to allow superlibrarians to download
+      database and configuration dumps (respectively) from the Export
+      tool -->
+ <backup_db_via_tools>0</backup_db_via_tools>
+ <backup_conf_via_tools>0</backup_conf_via_tools>
+ <!-- <pazpar2url>http://__PAZPAR2_HOST__:__PAZPAR2_PORT__/search.pz2</pazpar2url> -->
+ <install_log>/usr/share/koha/misc/koha-install-log</install_log>
+ <useldapserver>0</useldapserver><!-- see C4::Auth_with_ldap for extra configs you must add if you want to turn this on -->
+ <useshibboleth>0</useshibboleth><!-- see C4::Auth_with_shibboleth for extra configs you must do to turn this on -->
+ <lockdir>/var/lock/koha/__KOHASITE__</lockdir>
+ <zebra_lockdir>/var/lock/koha/__KOHASITE__</zebra_lockdir>
+ <use_zebra_facets>1</use_zebra_facets>
+ <zebra_max_record_size>1024</zebra_max_record_size>
+ <log4perl_conf>__KOHA_CONF_DIR__/log4perl.conf</log4perl_conf>
+ <!-- Uncomment/edit next setting if you want to adjust zebra log levels.
+      Default is: none,fatal,warn.
+      You can also include: debug,log,malloc,all,request.
+      Use a comma-separated list of levels to include. -->
+ <!-- <zebra_loglevels>none,fatal,warn</zebra_loglevels> -->
+ <memcached_servers>__MEMCACHED_SERVERS__</memcached_servers>
+ <memcached_namespace>__MEMCACHED_NAMESPACE__</memcached_namespace>
+ <template_cache_dir>__TEMPLATE_CACHE_DIR__</template_cache_dir>
+
+ <!-- Secret passphrase used by Mojolicious for signed cookies -->
+ <api_secret_passphrase>__API_SECRET__</api_secret_passphrase>
+
+ <!-- Accessible directory from the staff client, uncomment the following line and define a valid path to let the intranet user access it-->
+ <!--
+ <access_dirs>
+     <access_dir></access_dir>
+     <access_dir></access_dir>
+ </access_dirs>
+ -->
+
+ <!-- true type font mapping according to type from $font_types in C4/Creators/Lib.pm -->
+ <ttf>
+    <font type="TR" >/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf</font>
+    <font type="TB" >/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf</font>
+    <font type="TI" >/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf</font>
+    <font type="TBI">/usr/share/fonts/truetype/dejavu/DejaVuSerif-BoldItalic.ttf</font>
+    <font type="C"  >/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf</font>
+    <font type="CB" >/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf</font>
+    <font type="CO" >/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Oblique.ttf</font>
+    <font type="CBO">/usr/share/fonts/truetype/dejavu/DejaVuSansMono-BoldOblique.ttf</font>
+    <font type="H"  >/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf</font>
+    <font type="HO" >/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf</font>
+    <font type="HB" >/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf</font>
+    <font type="HBO">/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf</font>
+ </ttf>
+
+ <!-- Path to the config file for SMS::Send -->
+ <sms_send_config>__KOHA_CONF_DIR__/sms_send/</sms_send_config>
+
+ <!-- Configuration for Plack -->
+ <plack_max_requests>${PLACK_MAX_REQUESTS}</plack_max_requests>
+ <plack_workers>${PLACK_WORKERS}</plack_workers>
+
+ <!-- Configuration for X-Forwarded-For -->
+ <!--
+ <koha_trusted_proxies>1.2.3.4 2.3.4.5 3.4.5.6</koha_trusted_proxies>
+ -->
+
+ <!-- Elasticsearch Configuration -->
+ <elasticsearch>
+     <server>${ELASTIC_SERVER}</server>
+     <index_name>koha___KOHASITE__</index_name>
+     ${ELASTIC_OPTIONS}
+ </elasticsearch>
+ <!-- Uncomment the following line if you want to override the Elasticsearch default index settings -->
+ <!-- <elasticsearch_index_config>__KOHA_CONF_DIR__/searchengine/elasticsearch/index_config.yaml</elasticsearch_index_config> -->
+ <!-- Uncomment the following line if you want to override the Elasticsearch default field settings -->
+ <!-- <elasticsearch_field_config>__KOHA_CONF_DIR__/searchengine/elasticsearch/field_config.yaml</elasticsearch_field_config> -->
+ <!-- Uncomment the following line if you want to override the Elasticsearch index default settings.
+      Note that any changes made to the mappings file only take effect if you reset the mappings in
+      by visiting /cgi-bin/koha/admin/searchengine/elasticsearch/mappings.pl?op=reset&i_know_what_i_am_doing=1&reset_fields=1.
+      Resetting mappings will override any changes made in the Search engine configuration UI.
+ -->
+ <!-- <elasticsearch_index_mappings>__KOHA_CONF_DIR__/searchengine/elasticsearch/mappings.yaml</elasticsearch_index_mappings> -->
+
+ <interlibrary_loans>
+     <!-- Path to where Illbackends are located on the system
+          - This setting should normally not be touched -->
+     <backend_directory>/usr/share/koha/lib/Koha/Illbackends</backend_directory>
+     <!-- At least one <branch> block is required. -->
+     <branch>
+         <!-- The code of this branch -->
+         <code>CPL</code>
+         <!-- An optional prefix for all ILL request IDs for this branch -->
+         <prefix>ILL</prefix>
+     </branch>
+     <!-- How should we treat staff comments?
+          - hide: don't show in OPAC
+          - show: show in OPAC -->
+     <staff_request_comments>hide</staff_request_comments>
+     <!-- How should we treat the reply_date field?
+          - hide: don't show this field in the UI
+          - any other string: show, with this label -->
+     <reply_date>hide</reply_date>
+     <!-- Where should digital ILLs be sent?
+          - borrower: send it straight to the borrower email
+          - branch: send the ILL to the branch email -->
+     <digital_recipient>branch</digital_recipient>
+     <!-- What patron category should we use for p2p ILL requests?
+          - By default this is set to 'ILLLIBS' -->
+     <partner_code>ILLLIBS</partner_code>
+ </interlibrary_loans>
+
+ <!-- The timezone setting can let you force the timezone for this
+      instance to be something other then the local timezone of the
+      server. e.g. Antarctica/South_Pole -->
+ <timezone>__TIMEZONE__</timezone>
+
+ <encryption_key>t0P_secret</encryption_key>
+
+ <!-- flags for development purposes
+      git_install is used to adjust some paths specific to git installations (fka dev_install)
+      debug_mode is used to differentiate production from test systems (see for example koha-plack) -->
+ <git_install>1</git_install>
+ <debug_mode>1</debug_mode>
+ <!-- flag for backward compatibility, useful for bisecting -->
+ <dev_install>1</dev_install>
+
+ <!-- strict_sql_modes should not be used in a production environment
+       developers use it to catch bugs related to strict SQL modes -->
+ <strict_sql_modes>1</strict_sql_modes>
+
+ <plugins_restricted>0</plugins_restricted>
+ <plugins_restart>1</plugins_restart>
+ <plugin_repos>
+    <repo>
+        <name>ByWater Solutions</name>
+        <org_name>bywatersolutions</org_name>
+        <service>github</service>
+    </repo>
+    <repo>
+        <name>Theke Solutions</name>
+        <org_name>thekesolutions</org_name>
+        <service>github</service>
+    </repo>
+    <repo>
+        <name>Open Fifth</name>
+        <org_name>openfifth</org_name>
+        <service>github</service>
+    </repo>
+    <repo>
+        <name>Solutions inLibro</name>
+        <org_name>inLibro</org_name>
+        <service>github</service>
+    </repo>
+ </plugin_repos>
+
+ <!--
+   Content-Security-Policy (CSP) configuration
+   ============================================
+   CSP is a security feature that helps prevent XSS attacks by controlling which
+   resources the browser is allowed to load.
+
+   csp_mode options:
+     - (empty/unset): CSP is disabled (default)
+     - report-only: CSP violations are reported but not enforced (for testing)
+     - enabled: CSP is fully enforced
+
+   csp_header_value: The CSP policy directives. Special placeholders:
+     - _CSP_NONCE_: Replaced with a unique nonce for each request
+
+   NOTE: Koha comes with a hard-coded csp_header_value. You only need to define your own
+   csp_header_value if you want or need a different Content-Security-Policy value.
+
+   To enable violation reporting, create your own csp_header_value including
+    'report-to' pointing to csp-violations and add 'report-uri'.
+
+   NOTE: You must be using HTTPS to receive violation reports.
+
+   Example with reporting:
+   <content_security_policy>
+      <opac>
+        <csp_mode>report-only</csp_mode>
+        <csp_header_value>default-src 'self'; script-src 'self' 'nonce-_CSP_NONCE_'; style-src 'self' 'nonce-_CSP_NONCE_'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; report-uri /api/v1/public/csp-reports; report-to csp-violations</csp_header_value>
+      </opac>
+      <intranet>
+        <csp_mode>report-only</csp_mode>
+        <csp_header_value>default-src 'self'; script-src 'self' 'nonce-_CSP_NONCE_'; style-src 'self' 'nonce-_CSP_NONCE_'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; report-uri /api/v1/public/csp-reports; report-to csp-violations</csp_header_value>
+      </intranet>
+    </content_security_policy>
+
+   Reports are logged via Koha's logging system. Configure log4perl to capture them:
+    log4perl.logger.plack-csp = WARN, PLACKCSP
+    log4perl.appender.PLACKCSP=Log::Log4perl::Appender::File
+    log4perl.appender.PLACKCSP.filename=/var/log/koha/<kohasite>/plack-csp-violations.log
+    log4perl.appender.PLACKCSP.mode=append
+    log4perl.appender.PLACKCSP.layout=PatternLayout
+    log4perl.appender.PLACKCSP.layout.ConversionPattern=[%d] %m%n
+    log4perl.appender.PLACKCSP.utf8=1
+
+   Recommended workflow:
+     1. Start with report-only mode to identify violations
+     2. Review logs and fix any legitimate violations (by fixing the code or by modifying your csp_header_value)
+     3. Switch to enabled mode once violations are resolved
+ -->
+ <content_security_policy>
+   <opac>
+     <!-- supported values: report-only, enabled. Any other value, including unset, disables the feature. -->
+     <csp_mode>report-only</csp_mode>
+     <!-- defines the value of the CSP header. _CSP_NONCE_ can be used as a placeholder for the generated CSP nonce. -->
+     <csp_header_value></csp_header_value>
+   </opac>
+
+   <intranet>
+     <!-- supported values: report-only, enabled. Any other value, including unset, disables the feature. -->
+     <csp_mode>report-only</csp_mode>
+     <!-- defines the value of the CSP header. _CSP_NONCE_ can be used as a placeholder for the generated CSP nonce. -->
+     <csp_header_value></csp_header_value>
+   </intranet>
+ </content_security_policy>
+
+</config>
+</yazgfs>

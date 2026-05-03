@@ -1,0 +1,111 @@
+services:
+    db:
+        image: ${DB_IMAGE:-mariadb:10.11}
+        restart: always
+        environment:
+            MYSQL_ROOT_PASSWORD: password
+            MYSQL_DATABASE: koha_${KOHA_INSTANCE:-kohadev}
+            MYSQL_USER: koha_${KOHA_INSTANCE:-kohadev}
+            MYSQL_PASSWORD: ${KOHA_DB_PASSWORD:-password}
+        networks:
+            - kohanet
+    koha:
+        build:
+            context: .
+            network: host
+        depends_on:
+            - db
+            - memcached
+        cap_add:
+            - ALL
+        volumes:
+            - ${SYNC_REPO}:/kohadevbox/koha
+            - ${OPENSEARCH_CA_CERT:-/dev/null}:/kohadevbox/opensearch-root-ca.pem:ro
+        tmpfs:
+            - /cover_db
+            - /tmp
+        env_file:
+            - env/.env
+        environment:
+            COVERAGE: ${COVERAGE:-}
+            CPAN: ${CPAN:-no}
+            EXTRA_CPAN: ${EXTRA_CPAN:-}
+            EXTRA_APT: ${EXTRA_APT:-}
+            LOCAL_USER_ID: ${LOCAL_USER_ID}
+            KOHA_CI_INCREMENTAL_RUN_REPO_URL: ${KOHA_CI_INCREMENTAL_RUN_REPO_URL:-}
+            KOHA_CI_INCREMENTAL_RUNS: ${KOHA_CI_INCREMENTAL_RUNS:-}
+            KOHA_CI_INCREMENTAL_RUNS_REPORT: ${KOHA_CI_INCREMENTAL_RUNS_REPORT:-}
+            KOHA_CI_INCREMENTAL_RUNS_TOKEN: ${KOHA_CI_INCREMENTAL_RUNS_TOKEN:-}
+            KOHA_ELASTICSEARCH: ${KOHA_ELASTICSEARCH:-no}
+            ELASTIC_SERVER: ${ELASTIC_SERVER:-es:9200}
+            ELASTIC_OPTIONS: ${ELASTIC_OPTIONS:-}
+            OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-}
+            PERL_LWP_SSL_VERIFY_HOSTNAME: ${PERL_LWP_SSL_VERIFY_HOSTNAME:-1}
+            SKIP_CYPRESS_CHOWN: ${SKIP_CYPRESS_CHOWN:-no}
+            SKIP_L10N: ${SKIP_L10N:-no}
+            KOHA_IMAGE: ${KOHA_IMAGE:-main}
+            KOHA_MARC_FLAVOUR: ${KOHA_MARC_FLAVOUR:-marc21}
+            MANA_URL: ${MANA_URL}
+            # Controlled by stack.sh --with-demo-data / --no-demo-data.
+            # Overrides the LOAD_DEMO_DATA value from env/.env at runtime.
+            LOAD_DEMO_DATA: ${LOAD_DEMO_DATA:-yes}
+            # Public-facing HTTP port for URL generation (OPACBaseURL / staffClientBaseURL).
+            # Must match TRAEFIK_HTTP_PORT. Port 80 = no port suffix in browser URLs.
+            KOHA_PUBLIC_PORT: ${KOHA_PUBLIC_PORT:-80}
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        labels:
+            # Traefik reverse-proxy routing — requires the 'frontend' Docker network
+            # and the Traefik container to be running (see traefik/docker-compose.yaml).
+            #
+            # The Host rules are built from env vars so they automatically match whatever
+            # KOHA_INSTANCE / KOHA_DOMAIN / KOHA_INTRANET_SUFFIX are set to in env/.env.
+            #
+            # Port-free URLs (no :8080 / :8081 needed) once DNS — or /etc/hosts —
+            # resolves the hostnames to the Docker host IP.
+            # For zero-config local access set KOHA_DOMAIN=.<host-ip>.nip.io in env/.env
+            # (e.g. .127.0.0.1.nip.io) — nip.io resolves those names automatically.
+            - "traefik.enable=true"
+            - "traefik.docker.network=frontend"
+            # OPAC (public catalogue)
+            - "traefik.http.routers.koha-opac.rule=Host(`${KOHA_INSTANCE}${KOHA_DOMAIN}`)"
+            - "traefik.http.routers.koha-opac.entrypoints=web"
+            - "traefik.http.routers.koha-opac.service=koha-opac-svc"
+            - "traefik.http.services.koha-opac-svc.loadbalancer.server.port=${KOHA_OPAC_PORT:-8080}"
+            # Staff interface (intranet)
+            - "traefik.http.routers.koha-staff.rule=Host(`${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}`)"
+            - "traefik.http.routers.koha-staff.entrypoints=web"
+            - "traefik.http.routers.koha-staff.service=koha-staff-svc"
+            - "traefik.http.services.koha-staff-svc.loadbalancer.server.port=${KOHA_INTRANET_PORT:-8081}"
+        networks:
+            kohanet:
+                aliases:
+                    - "${KOHA_INTRANET_PREFIX}${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}"
+                    - "${KOHA_OPAC_PREFIX}${KOHA_INSTANCE}${KOHA_OPAC_SUFFIX}${KOHA_DOMAIN}"
+            knonikl: {}
+            opensearch-36_osearch: {}
+            frontend: {}
+        ports:
+            # Direct host-port bindings kept as fallback.
+            # With Traefik running on the 'frontend' network these are not required
+            # for browser access — remove them to force all HTTP traffic through Traefik.
+            - "8080:8080"
+            - "8081:8081"
+    memcached:
+        image: ${MEMCACHED_IMAGE:-memcached}
+        command: memcached -m 64m
+        networks:
+            - kohanet
+
+networks:
+    kohanet:
+        enable_ipv4: ${ENABLE_IPV4:-true}
+        enable_ipv6: ${ENABLE_IPV6:-false}
+    knonikl:
+        external: true
+    opensearch-36_osearch:
+        external: true
+    frontend:
+        external: true

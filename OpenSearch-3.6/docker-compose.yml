@@ -1,0 +1,301 @@
+services:
+  os01:
+    build:
+      context: .
+      dockerfile: assets/opensearch/Dockerfile
+      args:
+        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    # image: opensearchproject/opensearch:${OPEN_SEARCH_VERSION}
+    # user: "1000"
+    container_name: os01
+    volumes:
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch/config/admin-key.pem
+      - ./assets/ssl/os01.pem:/usr/share/opensearch/config/os01.pem
+      - ./assets/ssl/os01-key.pem:/usr/share/opensearch/config/os01-key.pem
+      - ./assets/opensearch/config/os01/jvm.options:/usr/share/opensearch/config/jvm.options
+      - ./assets/opensearch/config/os01/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
+      - ./assets/opensearch/config/os01/opensearch.yml:/usr/share/opensearch/config/opensearch.yml      
+      - ./assets/opensearch/config/os01/opensearch-security/config.yml:/usr/share/opensearch/config/opensearch-security/config.yml
+      - ./assets/opensearch/config/os01/opensearch-security/internal_users.yml:/usr/share/opensearch/config/opensearch-security/internal_users.yml
+      - ./assets/opensearch/config/os01/opensearch-security/roles.yml:/usr/share/opensearch/config/opensearch-security/roles.yml
+      - ./assets/opensearch/config/os01/opensearch-security/roles_mapping.yml:/usr/share/opensearch/config/opensearch-security/roles_mapping.yml
+      - ./assets/opensearch/config/os01/opensearch-security/nodes_dn.yml:/usr/share/opensearch/config/opensearch-security/nodes_dn.yml
+      - ./assets/opensearch/data/os01data:/usr/share/opensearch/data:rw
+      - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
+      # - os01data:/usr/share/opensearch/data # Creates volume called os01data and mounts it to the container
+    restart: on-failure
+    ports:
+      - 9200:9200 # REST API
+      - 9600:9600 # Performance Analyzer
+    expose:
+      - 9200
+    # extra_hosts:
+    #   - "localhost=127.0.0.1"
+    hostname: os01
+    env_file: .env
+    environment:
+      - node.roles=cluster_manager
+      - node.name=os01 # Name the node that will run in this container
+      - network.host=os01
+      - network.publish_host=os01
+      - cluster.name=${OS_CLUSTER_NAME}
+      - discovery.seed_hosts=os01,os02,os03,os04,os05 # Nodes to look for when discovering the cluster
+      - cluster.initial_cluster_manager_nodes=os01,os02 # Nodes eligible to serve as cluster manager
+      - bootstrap.memory_lock=true # Disable JVM heap memory swapping
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+      - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    ulimits:
+      memlock:
+        soft: -1 # Set memlock to unlimited (no soft or hard limit)
+        hard: -1
+      nofile:
+        soft: 65536 # Maximum number of open files for the opensearch user - set to at least 65536
+        hard: 65536
+    networks:
+      - osearch # All of the containers will join the same Docker bridge network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -ks --fail --cert /usr/share/opensearch/config/admin.pem --key /usr/share/opensearch/config/admin-key.pem https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=5s"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    logging:
+      driver: "json-file"
+      options:
+        max-size: 10m
+        max-file: "3"
+        labels: "production_status"
+        env: "os"
+  os02:
+    build:
+      context: .
+      dockerfile: assets/opensearch/Dockerfile
+      args:
+        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    container_name: os02
+    volumes:
+      - ./assets/ssl/os02.pem:/usr/share/opensearch/config/os02.pem
+      - ./assets/ssl/os02-key.pem:/usr/share/opensearch/config/os02-key.pem
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch/config/admin-key.pem      
+      - ./assets/opensearch/config/os02/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
+      - ./assets/opensearch/config/os02/jvm.options:/usr/share/opensearch/config/jvm.options
+      - ./assets/opensearch/config/os02/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
+      - ./assets/opensearch/data/os02data:/usr/share/opensearch/data:rw
+      - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
+      # - os02data:/usr/share/opensearch/data # Creates volume called os02data and mounts it to the container
+    hostname: os02
+    env_file: .env
+    environment:
+      - node.roles=cluster_manager,data,ingest
+      - node.name=os02
+      - network.host=os02
+      - network.publish_host=os02
+      - cluster.name=${OS_CLUSTER_NAME}
+      - discovery.seed_hosts=os01,os02,os03,os04,os05
+      - cluster.initial_cluster_manager_nodes=os01,os02
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    # extra_hosts:
+    #   - "os02=127.0.0.1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - osearch
+    restart: on-failure
+    # depends_on:
+    #   os01:
+    #     condition: service_healthy      
+  os03:
+    build:
+      context: .
+      dockerfile: assets/opensearch/Dockerfile
+      args:
+        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    container_name: os03
+    volumes:
+      - ./assets/ssl/os03.pem:/usr/share/opensearch/config/os03.pem
+      - ./assets/ssl/os03-key.pem:/usr/share/opensearch/config/os03-key.pem
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch/config/admin-key.pem
+      - ./assets/opensearch/config/os03/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
+      - ./assets/opensearch/config/os03/jvm.options:/usr/share/opensearch/config/jvm.options
+      - ./assets/opensearch/config/os03/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
+      - ./assets/opensearch/data/os03data:/usr/share/opensearch/data:rw
+      - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
+      # - os03data:/usr/share/opensearch/data # Creates volume called os03data and mounts it to the container
+    hostname: os03
+    env_file: .env
+    environment:
+      - node.name=os03
+      - network.host=os03
+      - network.publish_host=os03
+      - node.roles=data,ingest
+      - cluster.name=${OS_CLUSTER_NAME}
+      - discovery.seed_hosts=os01,os02,os03,os04,os05
+      - cluster.initial_cluster_manager_nodes=os01,os02
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    # extra_hosts:   # C4 fix: self-mapping breaks cluster transport
+    #   - "os03=127.0.0.1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - osearch
+    restart: on-failure
+  os04:
+    build:
+      context: .
+      dockerfile: assets/opensearch/Dockerfile
+      args:
+        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    container_name: os04
+    volumes:
+      - ./assets/ssl/os04.pem:/usr/share/opensearch/config/os04.pem
+      - ./assets/ssl/os04-key.pem:/usr/share/opensearch/config/os04-key.pem
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch/config/admin-key.pem
+      - ./assets/opensearch/config/os04/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
+      - ./assets/opensearch/config/os04/jvm.options:/usr/share/opensearch/config/jvm.options
+      - ./assets/opensearch/config/os04/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
+      - ./assets/opensearch/data/os04data:/usr/share/opensearch/data:rw
+      - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
+      # - os04data:/usr/share/opensearch/data # Creates volume called os04data and mounts it to the container
+    hostname: os04
+    env_file: .env
+    environment:
+      - node.roles=data,ingest
+      - node.name=os04
+      - network.host=os04
+      - network.publish_host=os04
+      - cluster.name=${OS_CLUSTER_NAME}
+      - discovery.seed_hosts=os01,os02,os03,os04,os05
+      - cluster.initial_cluster_manager_nodes=os01,os02
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    # extra_hosts:
+    #   - "os04=127.0.0.1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - osearch
+    restart: on-failure    
+  os05:
+    build:
+      context: .
+      dockerfile: assets/opensearch/Dockerfile
+      args:
+        - OPEN_SEARCH_VERSION=${OPEN_SEARCH_VERSION}
+    container_name: os05
+    volumes:
+      - ./assets/ssl/os05.pem:/usr/share/opensearch/config/os05.pem
+      - ./assets/ssl/os05-key.pem:/usr/share/opensearch/config/os05-key.pem
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch/config/admin-key.pem
+      - ./assets/opensearch/config/os05/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
+      - ./assets/opensearch/config/os05/jvm.options:/usr/share/opensearch/config/jvm.options
+      - ./assets/opensearch/config/os05/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
+      - ./assets/opensearch/data/os05data:/usr/share/opensearch/data:rw
+      - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
+      # - os05data:/usr/share/opensearch/data # Creates volume called os05data and mounts it to the container
+    hostname: os05
+    env_file: .env
+    environment:
+      - node.name=os05
+      - network.host=os05
+      - network.publish_host=os05
+      - node.roles=search
+      - node.search.cache.size=${OS_SEARCH_SNAPSHOT_SIZE}
+      - cluster.name=${OS_CLUSTER_NAME}
+      - discovery.seed_hosts=os01,os02,os03,os04,os05
+      - cluster.initial_cluster_manager_nodes=os01,os02
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=${OPENSEARCH_JAVA_OPTS}
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - cluster.routing.allocation.disk.threshold_enabled=false
+    # extra_hosts:2
+    #   - "os05=127.0.0.1"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - osearch
+    restart: on-failure
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:${OPEN_SEARCH_VERSION}
+    container_name: dashboards
+    hostname: dashboards    
+    volumes:
+      - ./assets/ssl/root-ca.pem:/usr/share/opensearch-dashboards/config/root-ca.pem
+      - ./assets/ssl/root-ca-key.pem:/usr/share/opensearch-dashboards/config/root-ca-key.pem
+      - ./assets/ssl/admin.pem:/usr/share/opensearch-dashboards/config/admin.pem
+      - ./assets/ssl/admin-key.pem:/usr/share/opensearch-dashboards/config/admin-key.pem
+      - ./assets/ssl/dashboards.pem:/usr/share/opensearch-dashboards/config/dashboards.pem
+      - ./assets/ssl/dashboards-key.pem:/usr/share/opensearch-dashboards/config/dashboards-key.pem
+      - ./assets/dashboards/opensearch_dashboards.yml:/usr/share/opensearch-dashboards/config/opensearch_dashboards.yml
+    ports:
+      - 5601:5601
+    expose:
+      - 5601
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashboards.rule=Host(`dashboards.localhost`)
+      - traefik.http.routers.dashboards.entrypoints=web
+    environment:
+      - OPENSEARCH_HOSTS=["https://os01:9200","https://os02:9200"] # Define the OpenSearch nodes that OpenSearch Dashboards will query
+    networks:
+      - osearch
+      - knonikl
+      - frontend
+    depends_on:
+      os01:
+        condition: service_healthy
+# volumes: # activate in case you want to create container volumes for the OpenSearch data directories instead of bind mounting local directories
+#   os01data:
+#   os02data:
+#   os03data:
+#   os04data:
+#   os05data:
+networks:
+  osearch:
+  knonikl:
+    name: knonikl     # ← added: pins the Docker network name regardless of project prefix
+  frontend:
+    external: true

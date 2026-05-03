@@ -1,0 +1,4 @@
+# plugin-stats-metadata
+# This file lists plugin-level metrics exposed by the Performance Analyzer.
+# Empty because the plugin is disabled; the StatsCollector requires the file
+# to exist to avoid a FileNotFoundException at startup.

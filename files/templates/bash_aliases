@@ -1,0 +1,78 @@
+# Aliases for reading logs
+alias koha-opac-err="sudo tail -f /var/log/koha/${KOHA_INSTANCE}/opac-error.log"
+alias koha-intra-err="sudo tail -f /var/log/koha/${KOHA_INSTANCE}/intranet-error.log"
+alias koha-plack-log="sudo tail -f /var/log/koha/${KOHA_INSTANCE}/plack.log"
+alias koha-plack-err="sudo tail -f /var/log/koha/${KOHA_INSTANCE}/plack-error.log"
+
+# Alias for getting into the ${KOHA_INSTANCE} user, inside /kohadevbox/koha
+alias kshell='cd /kohadevbox/koha ; sudo koha-shell ${KOHA_INSTANCE}'
+
+# Aliases for getting the db/admin user and password for our instance
+alias koha-user="sudo xmlstarlet sel -t -v 'yazgfs/config/user' -n '/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml'"
+alias koha-pass="sudo xmlstarlet sel -t -v 'yazgfs/config/pass' -n '/etc/koha/sites/${KOHA_INSTANCE}/koha-conf.xml'"
+
+# Aliases for dealing with Less compilation
+alias less-opac="lessc --clean-css='--s0 --advanced --compatibility=ie7' \
+                    /kohadevbox/koha/koha-tmpl/opac-tmpl/bootstrap/less/opac.less \
+                  > /kohadevbox/koha/koha-tmpl/opac-tmpl/bootstrap/css/opac.css"
+
+# Alias for running cp_debian_files.pl
+alias cp_debian_files="sudo perl /kohadevbox/misc4dev/cp_debian_files.pl --instance=${KOHA_INSTANCE} --koha_dir=/kohadevbox/koha --gitify_dir=/kohadevbox/gitify"
+
+# Make bisecting fun
+alias bisect_tests='git bisect run bisect_with_test'
+
+# Alias for reseting everything koha-related
+function reset_all(){
+
+    # MARC_FLAVOUR passed in argument, or env var $KOHA_MARC_FLAVOUR or 'marc21'
+    if [ -n "$1" ]; then
+        MARC_FLAVOUR=$1
+    else
+        if [ -n "$KOHA_MARC_FLAVOUR" ]; then
+            MARC_FLAVOUR=$KOHA_MARC_FLAVOUR
+        else
+            MARC_FLAVOUR="marc21"
+        fi
+    fi
+
+    read -p "This action will erase all your data. Are you sure? (y/N) " -n 1 -r
+    echo    # move to a new line
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+       mysql_auth_file=/etc/mysql/koha_${KOHA_INSTANCE}.cnf
+       mysql --defaults-file=$mysql_auth_file -e"DROP DATABASE koha_${KOHA_INSTANCE}"
+       mysql --defaults-file=$mysql_auth_file -e"CREATE DATABASE koha_${KOHA_INSTANCE}"
+
+       if [ -n "$KOHA_ELASTICSEARCH" ]; then
+           ES_FLAG="--elasticsearch"
+       fi
+
+       if [ "$ENABLE_PLUGINS" = "yes" ]; then
+           PLUGINS_FLAG="--install-plugins"
+       fi
+
+       perl /kohadevbox/misc4dev/do_all_you_can_do.pl \
+                   --instance ${KOHA_INSTANCE} ${ES_FLAG} ${PLUGINS_FLAG} \
+                   --userid ${KOHA_USER} \
+                   --password ${KOHA_PASS} \
+                   --marcflavour ${MARC_FLAVOUR} \
+                   --koha_dir /kohadevbox/koha \
+                   --opac-base-url http://${KOHA_OPAC_PREFIX}${KOHA_INSTANCE}${KOHA_OPAC_SUFFIX}${KOHA_DOMAIN}:${KOHA_OPAC_PORT} \
+                   --intranet-base-url http://${KOHA_INTRANET_PREFIX}${KOHA_INSTANCE}${KOHA_INTRANET_SUFFIX}${KOHA_DOMAIN}:${KOHA_INTRANET_PORT} \
+                   --gitify_dir ${BUILD_DIR}/gitify
+
+       restart_all
+    else
+       echo "Aborted"
+    fi
+}
+
+alias reset_all_marc21='reset_all "marc21"';
+alias reset_all_unimarc='reset_all "unimarc"';
+
+alias start_plack_debug='sudo koha-plack --start \
+                                         --debugger \
+                                         --debugger-path "/kohadevbox/dbgp" \
+                                         --debugger-location "${REMOTE_DEBUGGER_LOCATION}" \
+                                         --debugger-key "${REMOTE_DEBUGGER_KEY}" \
+                                         ${KOHA_INSTANCE}'

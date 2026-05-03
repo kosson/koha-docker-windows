@@ -1,0 +1,22 @@
+---
+_meta:
+  type: "internalusers"
+  config_version: 2
+admin:
+  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  reserved: true
+  backend_roles:
+  - "admin"
+  description: "Admin user"
+dashboards:
+  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  backend_roles:
+  - "admin"
+  - "dashboards"
+  opendistro_security_roles:
+  - "dashboards"
+  description: "User that Dashboard will access OpenSearch"
+kibanaserver:
+  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  reserved: true
+  description: "Demo kibanaserver user"

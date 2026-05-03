@@ -1,0 +1,167 @@
+#!/usr/bin/env perl
+
+use Modern::Perl;
+
+use File::Basename;
+use File::Slurp qw(read_file);
+use Term::ANSIColor qw(colored);
+
+$ENV{LOG} = "test";
+
+my $nb_errors = 0;
+my @compiled_css = ( "staff-global", "opac" );
+my $tidy_commands;
+
+my $in_container = -f '/.dockerenv';
+
+for my $filepath (`git diff --cached --name-only`) {
+    chomp $filepath;
+    next if not -f $filepath;
+
+    my @file_infos = fileparse( $filepath, qr/\.[^.]*/ );
+    my $file_ext = $file_infos[2];
+
+    if ( grep( $file_infos[0], @compiled_css ) && $file_ext eq ".css" ) {
+        say colored( "You don't want to commit $filepath", 'red' );
+        $nb_errors++;
+    }
+
+    if ( $file_ext =~ /^\.(pl|PL|pm)$/ ) {
+        system( perl_valid_cmd($filepath) ) == 0
+            || $nb_errors++;
+    }
+
+    if ( $file_ext =~ /^\.(pl|PL||pm|t|js|ts|vue|tt|inc)$/ ) {
+        $tidy_commands->{$filepath} = tidy_cmd($filepath);
+    }
+}
+
+my $filepath;
+for my $l ( split '\n', `git diff-index -p -M --cached HEAD` ) {
+    if ( $l =~ /^diff --git a\/([^ ]*) .*$/ ) {
+        $filepath = $1;
+    }
+    if ( $l =~ /^\+ *console.log/ ) {
+        say colored( "$filepath contains console.log ($l)", 'red' );
+        $nb_errors++;
+    }
+    elsif ( $l =~ /^\+ *warn Data::Dumper::Dumper / ) {
+        say colored( "$filepath contains warn Data::Dumper::Dumper ($l)",
+            'red' );
+        $nb_errors++;
+    }
+
+    # This one could be uncommented when Koha will have the Logger module
+    elsif ( $l =~ /^\+ *warn / ) {
+        say "$filepath contains warn ($l)";
+        $nb_errors++;
+    }
+
+    elsif( $l =~ /\+ *\t/) { # fail also if there is some space before the tab
+        say colored( "$filepath contains a tab, must use 4 spaces ($l)",
+            'red' );
+        $nb_errors++;
+    }
+
+    elsif ( $l =~ m/^<<<<<<</ or $l =~ m/^>>>>>>>/ or $l =~ m/^=======/ ) {
+        say colored( "$filepath contains $& ($l)", 'red' );
+        $nb_errors++;
+    }
+}
+
+if ($nb_errors) {
+    abording();
+} elsif ( $tidy_commands ) {
+    say colored( "Tidying...", "yellow" );
+
+    # Prevent to reach a stash pop that will fail later
+    # Do not modify files if they have changes that are not added to the git index yet (so part of the current commit)
+    my @local_changes = map{ chomp; $_ } qx(git diff --name-only);
+    my @local_changes_on_files_to_modify = intersect(\@local_changes, [keys %$tidy_commands]);
+    if ( @local_changes_on_files_to_modify ) {
+        say colored( "Cannot modify files with changes not added to the index yet", "red" );
+        exit 1;
+    }
+
+    # If there are local changes we stash, just in case
+    # It should not be needed, we have the previous check
+    if ( @local_changes ) {
+        say colored( "Stashing local changes", "green" );
+        qx{git stash push -m "pre-commit" --keep-index --quiet};
+    }
+
+    # Do modify the files
+    while ( my ( $filepath, $cmd ) = each %$tidy_commands ) {
+        qx($cmd);
+    }
+
+    if ( @local_changes ) {
+        say colored( "Unstashing local changes", "green" );
+        my $stash_applied_error = system(q[git stash apply stash^{/pre-commit} --quiet]);
+        # This stash pop should not fail, isn't it?
+        if ( $stash_applied_error ) {
+            say colored( "Cannot unstash properly", "red" );
+            say colored( "Something bad happens, this was not expected!", "red" );
+            exit 1;
+        }
+    }
+
+    # Add changes to the commit
+    my $git_add_cmd = q{git add } . join(' ', keys %$tidy_commands);
+    qx{$git_add_cmd};
+}
+
+say colored( "Success, pre-commit checks passed", 'green' );
+
+exit 0;
+
+sub guess_container_name {
+    my @names = map { chomp; $_ } qx{docker ps --format '{{.Names}}'|grep '\\-koha-1'};
+    my $default = 'kohadev-koha-1';
+    return $default if grep {$_ eq $default} @names;
+    return $names[0];
+}
+
+sub intersect{
+    my ( $a, $b ) = @_;
+    my %e = map { $_ => undef } @$a;
+    return grep { exists( $e{$_} ) } @$b;
+}
+
+sub build_cmd {
+    my ($cmd) = @_;
+
+    return $cmd if $in_container;
+
+    $cmd =~ s|"|\\"|g;
+    $cmd =~ s|\$|\\\$|g;
+    my $container_name = guess_container_name();
+    return sprintf q{docker exec --user kohadev-koha -w /kohadevbox/koha %s /bin/bash -c "source ~/.bashrc; %s"}, $container_name, $cmd;
+}
+sub perl_valid_cmd {
+    my ($filepath) = @_;
+    my $cmd = sprintf q{
+        sh -c '
+            output=$(/usr/bin/perl -wc %s 2>&1);
+            perl_exit=$?;
+            filtered=$(echo "$output" | grep -Pv "^(Subroutine \\w+ redefined at |Constant subroutine (\\w|:)+ redefined at |.* syntax OK\$)" || true);
+            echo "$output" | grep -Pv "^(Subroutine \\w+ redefined at |Constant subroutine (\\w|:)+ redefined at )" || true;
+            if [ $perl_exit -ne 0 ] || [ -n "$filtered" ]; then exit 255; else exit 0; fi
+        '
+    }, $filepath;
+    $cmd =~ s|\n| |g;
+    return build_cmd($cmd);
+}
+sub tidy_cmd {
+    my ($filepath) = @_;
+    my $cmd = sprintf '/usr/bin/perl misc/devel/tidy.pl --perltidyrc=/kohadevbox/koha/.perltidyrc %s', $filepath;
+    return build_cmd($cmd);
+}
+
+sub abording {
+    say "";
+    say colored( "Abording commit, encountered errors", "red" );
+    say "Are you sure you want to commit?";
+    say "You can commit with the --no-verify argument";
+    exit 1;
+}

@@ -1,0 +1,28 @@
+server.port: 5601
+server.host: "0.0.0.0"
+opensearch.username: "dashboards"
+opensearch.password: "test@Cici24#ANA"
+opensearchDashboards.index: ".kibana"
+# multitenancy removed in OpenSearch / Dashboards 3.0 — these settings no longer exist
+# opensearch_security.multitenancy.enabled: true
+# opensearch_security.multitenancy.tenants.preferred: ["Private", "Global"]
+# securitytenant header is also gone; authorization header is still needed
+opensearch.requestHeadersAllowlist: [ authorization ]
+opensearch_security.readonly_mode.roles: ["opensearch_dashboards_read_only"]
+# https://opensearch.org/docs/latest/install-and-configure/install-dashboards/tls/
+server.ssl.clientAuthentication: optional
+server.ssl.enabled: true
+server.ssl.certificate: /usr/share/opensearch-dashboards/config/dashboards.pem
+server.ssl.key: /usr/share/opensearch-dashboards/config/dashboards-key.pem
+# opensearch.ssl.verificationMode: full
+opensearch.ssl.alwaysPresentCertificate: true
+opensearch.ssl.certificate: /usr/share/opensearch-dashboards/config/admin.pem
+opensearch.ssl.key: /usr/share/opensearch-dashboards/config/admin-key.pem
+opensearch.ssl.certificateAuthorities: [ "/usr/share/opensearch-dashboards/config/root-ca.pem" ]
+opensearch_security.cookie.secure: true
+# Set the value to true to enable multiple data source feature
+data_source.enabled: true
+# Set the value to true to enable workspace feature
+workspace.enabled: true
+# Set the value to true to enable explore feature
+explore.enabled: true

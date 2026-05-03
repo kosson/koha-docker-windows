@@ -1,0 +1,5 @@
+#!/bin/bash
+
+source ~/.bashrc
+echo "y" | reset_all
+prove -q $1

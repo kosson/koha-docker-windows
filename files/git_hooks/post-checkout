@@ -1,0 +1,15 @@
+#!/usr/bin/env perl
+
+use Modern::Perl;
+
+# Check if .git-blame-ignore-revs is in the current branch
+my $is_tracked = system("git ls-files --error-unmatch .git-blame-ignore-revs > /dev/null 2>&1") == 0;
+
+if ($is_tracked) {
+    qx{git config blame.ignoreRevsFile .git-blame-ignore-revs};
+}
+else {
+    qx{git config --unset blame.ignoreRevsFile};
+}
+
+exit 0;

@@ -1,0 +1,20 @@
+# Koha ILS source tree — cloned separately by the developer (see README)
+# Clone with: git clone --depth=1 https://gitlab.com/koha-community/Koha.git koha
+koha/
+
+# Runtime secrets and local overrides
+env/.env.local
+
+# OpenSearch TLS certificates (generated locally)
+OpenSearch-3.6/assets/ssl/*.pem
+OpenSearch-3.6/assets/ssl/*.key
+OpenSearch-3.6/assets/ssl/*.crt
+
+# OpenSearch node data directories (runtime, not versioned)
+OpenSearch-3.6/assets/opensearch/data/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+*~

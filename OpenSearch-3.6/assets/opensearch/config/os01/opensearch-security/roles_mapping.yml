@@ -1,0 +1,51 @@
+---
+_meta:
+  type: "rolesmapping"
+  config_version: 2
+
+# Maps backend role "admin" and the admin TLS cert CN to the built-in all_access role.
+all_access:
+  reserved: false
+  backend_roles:
+  - "admin"
+  users:
+  - "admin"
+  - "CN=admin,OU=DFCTI,O=NIPNE,L=MAGURELE,ST=ILFOV,C=RO"
+  description: "Full access for admin backend role and admin cert"
+
+# Grants the Dashboards service-account user the built-in server role.
+# In OpenSearch 3.x the role was renamed from kibana_server to opensearch_dashboards_server.
+opensearch_dashboards_server:
+  reserved: false
+  users:
+  - "dashboards"
+  description: "OpenSearch Dashboards service account"
+
+# Custom role that grants full read/write across all indices (used by Dashboards UI users).
+dashboards:
+  reserved: false
+  backend_roles:
+  - "admin"
+  - "dashboards"
+  users:
+  - "dashboards"
+  - "admin"
+  description: "Custom Dashboards UI role — maps to dashboards role in roles.yml"
+
+# Allow every authenticated user to access their own per-username index.
+own_index:
+  reserved: false
+  users:
+  - "*"
+  description: "Allow full access to an index named like the username"
+
+# Read-only access for dashboards and admin.
+readall:
+  reserved: false
+  backend_roles:
+  - "admin"
+  - "readall"
+  users:
+  - "dashboards"
+  - "admin"
+  description: "Read-all mapping"

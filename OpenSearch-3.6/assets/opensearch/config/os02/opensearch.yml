@@ -1,0 +1,70 @@
+﻿plugins.security.ssl.transport.enforce_hostname_verification: false
+# NODE 02
+plugins.security.ssl_cert_reload_enabled: true
+plugins.security.ssl.transport.pemkey_filepath: /usr/share/opensearch/config/os02-key.pem
+plugins.security.ssl.transport.pemcert_filepath: /usr/share/opensearch/config/os02.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: /usr/share/opensearch/config/root-ca.pem
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemkey_filepath: /usr/share/opensearch/config/os02-key.pem
+plugins.security.ssl.http.pemcert_filepath: /usr/share/opensearch/config/os02.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: /usr/share/opensearch/config/root-ca.pem
+plugins.security.audit.type: internal_opensearch
+plugins.security.ssl.http.clientauth_mode: OPTIONAL
+plugins.security.restapi.roles_enabled: ["all_access", "security_rest_api_access", "dashboards"]
+plugins.security.enable_snapshot_restore_privilege: true
+plugins.security.check_snapshot_restore_write_privileges: true
+plugins.security.restapi.password_validation_regex: '(?=.*[A-Z])(?=.*[^a-zA-Z\d])(?=.*[0-9])(?=.*[a-z]).{8,}'
+plugins.security.restapi.password_min_length: 10
+plugins.security.restapi.password_score_based_validation_strength: very_strong
+plugins.security.allow_default_init_securityindex: true
+plugins.security.nodes_dn_dynamic_config_enabled: true
+plugins.security.system_indices.permission.enabled: true
+plugins.security.system_indices.enabled: true
+plugins.security.system_indices.indices:
+  - ".plugins-ml-agent"
+  - ".plugins-ml-config"
+  - ".plugins-ml-connector"
+  - ".plugins-ml-controller"
+  - ".plugins-ml-model-group"
+  - ".plugins-ml-model"
+  - ".plugins-ml-task"
+  - ".plugins-ml-conversation-meta"
+  - ".plugins-ml-conversation-interactions"
+  - ".plugins-ml-memory-meta"
+  - ".plugins-ml-memory-message"
+  - ".plugins-ml-stop-words"
+  - ".opendistro-alerting-config"
+  - ".opendistro-alerting-alert*"
+  - ".opendistro-anomaly-results*"
+  - ".opendistro-anomaly-detector*"
+  - ".opendistro-anomaly-checkpoints"
+  - ".opendistro-anomaly-detection-state"
+  - ".opendistro-reports-*"
+  - ".opendistro-notifications-*"
+  - ".opendistro-notebooks"
+  - ".opendistro-asynchronous-search-response*"
+  - ".opensearch-notifications-*"
+  - ".opensearch-notebooks"
+  - ".opensearch-observability"
+  - ".ql-datasources"
+  - ".opendistro-asynchronous-search-response*"
+  - ".replication-metadata-store"
+  - ".opensearch-knn-models"
+  - ".geospatial-ip2geo-data*"
+  - ".plugins-flow-framework-config"
+  - ".plugins-flow-framework-templates"
+  - ".plugins-flow-framework-state"
+plugins.security.authcz.admin_dn:
+  - 'CN=admin,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+plugins.security.nodes_dn:
+  - 'CN=os01,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os02,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os03,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os04,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=os05,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+  - 'CN=dashboards,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
+http.detailed_errors.enabled: true
+# W2: compliance field-masking salt (must be identical on all nodes)
+plugins.security.compliance.salt: "zVtWSxbhUWlxBHFd"
+# W3: SQL plugin datasource encryption master key
+plugins.query.datasources.encryption.masterkey: "3b0405ff5aa8b1eff25e1faf552eb7dc"
