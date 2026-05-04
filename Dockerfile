@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 # File Author / Maintainer
 LABEL maintainer="kosson@gmail.com"
 
-ENV PATH=/usr/bin:/bin:/usr/sbin:/sbin
+ENV PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 ENV DEBIAN_FRONTEND=noninteractive
 ENV REFRESHED_AT=2026-04-22
 
@@ -14,19 +14,47 @@ ENV REFRESHED_AT=2026-04-22
 # Removing the ubuntu user here frees UID 1000 for kohadev-koha.
 RUN userdel -r ubuntu 2>/dev/null || true
 
-# Redirect all apt sources to mirrors.kernel.org — archive.ubuntu.com and security.ubuntu.com
-# use Canonical CDN nodes (91.189.91.x / 185.125.x.x) that are unreachable from this network.
-# mirrors.kernel.org serves all noble/noble-security/noble-updates packages at full speed.
-RUN sed -i \
-        -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.kernel.org/ubuntu|g' \
-        -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.kernel.org/ubuntu|g' \
-        /etc/apt/sources.list.d/ubuntu.sources \
-    && echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries \
-    && echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/80-retries
+# Keep official Ubuntu archives as the only apt source and add aggressive retry
+# settings because large Docker builds are sensitive to transient network failures.
+RUN echo 'Acquire::Retries "8";'           >  /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::http::Timeout "120";'   >> /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::https::Timeout "120";'  >> /etc/apt/apt.conf.d/80-retries
+
+# Install packages with retries to survive intermittent mirror/network failures.
+RUN cat > /usr/local/bin/apt-install-retry <<'EOF'
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+    echo "Usage: apt-install-retry <package> [package ...]" >&2
+    exit 2
+fi
+
+attempt=1
+max_attempts=4
+while [ "$attempt" -le "$max_attempts" ]; do
+    if apt-get update && apt-get -y install "$@"; then
+        rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        exit 0
+    fi
+
+    if [ "$attempt" -eq "$max_attempts" ]; then
+        echo "apt-install-retry: failed after ${max_attempts} attempts" >&2
+        exit 1
+    fi
+
+    echo "apt-install-retry: attempt ${attempt} failed; retrying..." >&2
+    apt-get clean || true
+    rm -rf /var/lib/apt/lists/*
+    sleep $((attempt * 5))
+    attempt=$((attempt + 1))
+done
+EOF
+RUN sed -i 's/\r$//' /usr/local/bin/apt-install-retry \
+    && chmod +x /usr/local/bin/apt-install-retry
 
 # Install base packages (Ubuntu 24.04 Noble)
-RUN apt-get update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         apache2 \
         build-essential \
         codespell \
@@ -55,8 +83,7 @@ RUN apt-get update \
         curl \
         apt-transport-https \
         plocate \
-        iproute2 \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        iproute2
 
 # Set locales
 RUN    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
@@ -71,7 +98,7 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 ENV LC_CTYPE=en_US.UTF-8
 
-# Prepare apache configuration
+# Prepare Apache configuration
 RUN a2dismod mpm_event
 RUN a2dissite 000-default
 RUN a2enmod rewrite \
@@ -86,19 +113,16 @@ RUN curl -s http://debian.koha-community.org/koha/gpg.asc | \
     echo "deb [signed-by=/etc/apt/trusted.gpg.d/koha.gpg] http://debian.koha-community.org/koha-staging dev main" >> /etc/apt/sources.list.d/koha.list
 
 # Install koha-common
-RUN apt-get -y update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         koha-common \
     && /etc/init.d/koha-common stop \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/* \
     && rm -rf /usr/share/koha/misc/translator/po/*
 
 RUN mkdir /kohadevbox
 WORKDIR /kohadevbox
 
 # Install Koha development packages
-RUN apt-get update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         perltidy \
         libexpat1-dev \
         libtemplate-plugin-gettext-perl \
@@ -109,8 +133,7 @@ RUN apt-get update \
         libtext-csv-unicode-perl \
         libdevel-cover-report-clover-perl \
         libwebservice-ils-perl \
-        libselenium-remote-driver-perl \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        libselenium-remote-driver-perl
 
 # Add nodejs repo
 RUN wget -O- -q https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
@@ -125,11 +148,9 @@ RUN wget -O- -q https://dl.yarnpkg.com/debian/pubkey.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/yarnkey.gpg] https://dl.yarnpkg.com/debian stable main" > /etc/apt/sources.list.d/yarn.list
 
 # Install Node.js and Yarn
-RUN apt-get update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         nodejs \
-        yarn \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        yarn
 
 # Install some tool
 RUN yarn global add gulp-cli
@@ -163,15 +184,12 @@ RUN cd /kohadevbox \
     && git clone https://gitlab.com/koha-community/koha-howto.git howto
 
 # Install utility packages
-RUN apt-get update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         bugz \
-        inotify-tools \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        inotify-tools
 
 # Install Cypress testing packages (Ubuntu 24.04 Noble: t64 variants, libgconf-2-4 removed)
-RUN apt-get update \
-    && apt-get -y install \
+RUN /bin/sh /usr/local/bin/apt-install-retry \
         libgtk2.0-0t64 \
         libgtk-3-0t64 \
         libgbm-dev \
@@ -181,8 +199,7 @@ RUN apt-get update \
         libasound2t64 \
         libxtst6 \
         xauth \
-        xvfb \
-    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
+        xvfb
 
 # download koha-reload-starman
 RUN cd /kohadevbox \

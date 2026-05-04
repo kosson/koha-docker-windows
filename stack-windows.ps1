@@ -147,6 +147,26 @@ function Wait-OpenSearchGreen {
     Fail "OpenSearch did not reach green status in time."
 }
 
+function Test-DbRootPasswordAuth {
+    param(
+        [string]$DbContainer
+    )
+
+    try {
+        # Skip password auth probe when MYSQL_ROOT_PASSWORD is empty in container env.
+        & docker exec $DbContainer sh -lc 'test -n "${MYSQL_ROOT_PASSWORD:-}"' 1>$null 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $false
+        }
+
+        & docker exec $DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent >/dev/null 2>&1' 1>$null 2>$null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Wait-DbReady {
     param(
         [string]$DbContainer,
@@ -157,7 +177,13 @@ function Wait-DbReady {
     Write-Info "Waiting for MariaDB in '$DbContainer'..."
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        & docker exec $DbContainer mysqladmin ping -uroot -ppassword --silent 1>$null 2>$null
+        $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $DbContainer
+        if ($passwordAuthWorks) {
+            & docker exec $DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' 1>$null 2>$null
+        }
+        else {
+            & docker exec $DbContainer mysqladmin ping -uroot --silent 1>$null 2>$null
+        }
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "MariaDB is ready."
             return
@@ -186,7 +212,13 @@ GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
 FLUSH PRIVILEGES;
 "@
 
-    & docker exec $DbContainer mysql -uroot -ppassword -e $sql
+    $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $DbContainer
+    if ($passwordAuthWorks) {
+        $sql | & docker exec -i $DbContainer sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+    }
+    else {
+        $sql | & docker exec -i $DbContainer mysql -uroot
+    }
     if ($LASTEXITCODE -ne 0) {
         Fail "Failed to reset database '$DbName'."
     }
@@ -280,7 +312,13 @@ function Invoke-HealthCheck {
     }
 
     & $Check "MariaDB accepting connections" {
-        & docker exec $script:DbContainer mysqladmin ping -uroot -ppassword --silent 1>$null 2>$null
+        $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $script:DbContainer
+        if ($passwordAuthWorks) {
+            & docker exec $script:DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' 1>$null 2>$null
+        }
+        else {
+            & docker exec $script:DbContainer mysqladmin ping -uroot --silent 1>$null 2>$null
+        }
         $LASTEXITCODE -eq 0
     }
 

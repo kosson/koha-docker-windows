@@ -1570,3 +1570,83 @@ Staff via Traefik:   HTTP 200 ✓
 - `KOHA_OPAC_PORT=8080` still controls internal Apache listen port and Traefik backend routing.
 - `KOHA_PUBLIC_PORT=80` only affects URL construction for the Koha DB preferences.
 - The `environment:` block in `docker-compose.yml` overrides `env_file:` values, enabling shell exports from `stack.sh` to flow through.
+
+---
+
+## 2026-05-04 — Fix first-start DB reset auth failure (ERROR 1045)
+
+### Issue observed
+
+On first start, `./opensearch_local_certificates_creator.ps1` followed by `./stack-windows.ps1 start` could fail during DB reset with:
+
+```text
+ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)
+```
+
+The reset flow used hardcoded MariaDB root credentials (`-ppassword`) in `stack-windows.ps1`.
+
+### Root cause
+
+`stack-windows.ps1` assumed MariaDB root password was always `password`, but real container state can differ (existing volume, prior initialization, or env mismatch).
+
+### Fix applied
+
+Updated `stack-windows.ps1` DB auth calls to use runtime credentials from the DB container:
+
+- `Wait-DbReady`: use `MYSQL_ROOT_PASSWORD` from inside container for `mysqladmin ping`.
+- `Reset-KohaDatabase`: execute SQL through `docker exec -i ... sh -lc` and authenticate with `MYSQL_ROOT_PASSWORD`.
+- `Invoke-HealthCheck` (MariaDB check): same runtime auth logic.
+
+Also added fallback logic:
+
+- If password-based root auth probe fails, try root-without-password probe before failing.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `stack-windows.ps1` | Removed hardcoded `-ppassword` in DB readiness/reset/health paths; added runtime + fallback auth |
+
+---
+
+## 2026-05-04 — Dockerfile apt download timeout hardening (exit code 100)
+
+### Issue observed
+
+Building the Koha image could fail in the first large apt install layer with:
+
+```text
+E: Failed to fetch ... liblsan0_...deb  Connection timed out
+failed to solve ... exit code: 100
+```
+
+### Root cause
+
+The failure was not a missing package. It was a transient package download timeout during
+`apt-get install` (observed repeatedly on `liblsan0`) while fetching from mirror endpoints.
+
+### Final fix applied
+
+1. Kept official Ubuntu archives as the apt source path (removed kernel-mirror override logic).
+2. Added stronger apt retry configuration in `/etc/apt/apt.conf.d/80-retries`:
+   - `Acquire::Retries "8"`
+   - `Acquire::http::Timeout "120"`
+   - `Acquire::https::Timeout "120"`
+3. Added a reusable helper script in image build:
+   - `/usr/local/bin/apt-install-retry`
+   - Performs `apt-get update && apt-get install` with up to 4 attempts
+   - Cleans apt state between attempts to recover from partial downloads
+4. Switched all apt install blocks in `Dockerfile` to use the retry helper.
+5. Normalized helper script to LF (`sed -i 's/\r$//'`) to avoid Windows CRLF shebang/runtime issues.
+
+### Validation
+
+`./stack-windows.ps1 build -BuildKoha` completed successfully after these changes.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `Dockerfile` | Added resilient apt retry helper; updated all apt install layers to use it; removed fragile mirror override |
+
+---
