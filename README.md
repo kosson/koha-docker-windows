@@ -13,11 +13,13 @@ Windows-first Koha development stack with Docker Desktop, MariaDB, Traefik, and 
 - Docker Desktop (Linux containers mode)
 - PowerShell 5.1+
 - Git for Windows
+- WSL installed (see: https://docs.docker.com/desktop/features/wsl/) needed by the Docker Desktop.
 
 Notes:
 
 - The OpenSearch certificate generator auto-detects `openssl.exe` from common Git for Windows locations.
 - OpenSSL in PATH is optional.
+- For Docker you need at least 8Gb of RAM, a 64bit processor with at least four cores (8 threads), at least 20Gb of HDD/SSD, and virtualization activated in BIOS/EFI to avoid errors described in the following online document: https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/topics/#docker-desktop-fails-due-to-virtualization-not-working.
 
 Check tools:
 
@@ -25,7 +27,10 @@ Check tools:
 git --version
 docker --version
 docker compose version
+wsl --version
 ```
+
+If you do not have WSL install it with `wsl --install`. If you have it, update it: `wsl --update`.
 
 Optional check:
 
