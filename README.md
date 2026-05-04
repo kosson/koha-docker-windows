@@ -259,6 +259,42 @@ Use PowerShell equivalents for normal operation in this fork.
 docker compose -f .\OpenSearch-3.6\docker-compose.yml --env-file .\OpenSearch-3.6\.env logs
 ```
 
+### OpenSearch startup diagnostics (Windows)
+
+Use this routine when `start -BuildOpenSearch` creates containers but reports errors or does not reach green cluster state.
+
+1. Reset only OpenSearch containers and volumes:
+
+```powershell
+docker compose -f .\OpenSearch-3.6\docker-compose.yml --env-file .\OpenSearch-3.6\.env down -v
+```
+
+2. Rebuild and start through the Windows manager:
+
+```powershell
+.\stack-windows.ps1 start -BuildOpenSearch -NoLogs
+```
+
+3. Validate startup state:
+
+```powershell
+.\stack-windows.ps1 health
+```
+
+Expected OpenSearch checks:
+
+- `OpenSearch os01 container healthy` = PASS
+- `OpenSearch cluster status green` = PASS
+
+4. If OpenSearch is still not green, collect focused cluster logs:
+
+```powershell
+docker compose -f .\OpenSearch-3.6\docker-compose.yml --env-file .\OpenSearch-3.6\.env ps
+docker compose -f .\OpenSearch-3.6\docker-compose.yml --env-file .\OpenSearch-3.6\.env logs
+```
+
+5. If Koha build later fails with `Release file ... is not valid yet`, verify Windows clock/timezone sync, restart Docker Desktop, then rerun step 2.
+
 ### Koha image build fails with apt exit code 100
 
 Symptoms:

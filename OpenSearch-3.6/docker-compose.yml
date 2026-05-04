@@ -23,9 +23,8 @@ services:
       - ./assets/opensearch/config/os01/opensearch-security/roles.yml:/usr/share/opensearch/config/opensearch-security/roles.yml
       - ./assets/opensearch/config/os01/opensearch-security/roles_mapping.yml:/usr/share/opensearch/config/opensearch-security/roles_mapping.yml
       - ./assets/opensearch/config/os01/opensearch-security/nodes_dn.yml:/usr/share/opensearch/config/opensearch-security/nodes_dn.yml
-      - ./assets/opensearch/data/os01data:/usr/share/opensearch/data:rw
+      - os01data:/usr/share/opensearch/data
       - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
-      # - os01data:/usr/share/opensearch/data # Creates volume called os01data and mounts it to the container
     restart: on-failure
     ports:
       - 9200:9200 # REST API
@@ -87,9 +86,8 @@ services:
       - ./assets/opensearch/config/os02/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
       - ./assets/opensearch/config/os02/jvm.options:/usr/share/opensearch/config/jvm.options
       - ./assets/opensearch/config/os02/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
-      - ./assets/opensearch/data/os02data:/usr/share/opensearch/data:rw
+      - os02data:/usr/share/opensearch/data
       - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
-      # - os02data:/usr/share/opensearch/data # Creates volume called os02data and mounts it to the container
     hostname: os02
     env_file: .env
     environment:
@@ -136,9 +134,8 @@ services:
       - ./assets/opensearch/config/os03/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
       - ./assets/opensearch/config/os03/jvm.options:/usr/share/opensearch/config/jvm.options
       - ./assets/opensearch/config/os03/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
-      - ./assets/opensearch/data/os03data:/usr/share/opensearch/data:rw
+      - os03data:/usr/share/opensearch/data
       - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
-      # - os03data:/usr/share/opensearch/data # Creates volume called os03data and mounts it to the container
     hostname: os03
     env_file: .env
     environment:
@@ -182,9 +179,8 @@ services:
       - ./assets/opensearch/config/os04/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
       - ./assets/opensearch/config/os04/jvm.options:/usr/share/opensearch/config/jvm.options
       - ./assets/opensearch/config/os04/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
-      - ./assets/opensearch/data/os04data:/usr/share/opensearch/data:rw
+      - os04data:/usr/share/opensearch/data
       - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
-      # - os04data:/usr/share/opensearch/data # Creates volume called os04data and mounts it to the container
     hostname: os04
     env_file: .env
     environment:
@@ -228,9 +224,8 @@ services:
       - ./assets/opensearch/config/os05/opensearch.yml:/usr/share/opensearch/config/opensearch.yml
       - ./assets/opensearch/config/os05/jvm.options:/usr/share/opensearch/config/jvm.options
       - ./assets/opensearch/config/os05/log4j2.properties:/usr/share/opensearch/config/log4j2.properties
-      - ./assets/opensearch/data/os05data:/usr/share/opensearch/data:rw
+      - os05data:/usr/share/opensearch/data
       - ./assets/opensearch/performance-analyzer:/usr/share/opensearch/config/opensearch-performance-analyzer
-      # - os05data:/usr/share/opensearch/data # Creates volume called os05data and mounts it to the container
     hostname: os05
     env_file: .env
     environment:
@@ -287,12 +282,12 @@ services:
     depends_on:
       os01:
         condition: service_healthy
-# volumes: # activate in case you want to create container volumes for the OpenSearch data directories instead of bind mounting local directories
-#   os01data:
-#   os02data:
-#   os03data:
-#   os04data:
-#   os05data:
+volumes:
+  os01data:
+  os02data:
+  os03data:
+  os04data:
+  os05data:
 networks:
   osearch:
   knonikl:

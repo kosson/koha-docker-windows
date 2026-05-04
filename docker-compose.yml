@@ -3,7 +3,7 @@ services:
         image: ${DB_IMAGE:-mariadb:10.11}
         restart: always
         environment:
-            MYSQL_ROOT_PASSWORD: password
+            MYSQL_ROOT_PASSWORD: ${KOHA_DB_ROOT_PASSWORD:-password}
             MYSQL_DATABASE: koha_${KOHA_INSTANCE:-kohadev}
             MYSQL_USER: koha_${KOHA_INSTANCE:-kohadev}
             MYSQL_PASSWORD: ${KOHA_DB_PASSWORD:-password}

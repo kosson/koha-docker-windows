@@ -1,4 +1,4 @@
-ARG OPEN_SEARCH_VERSION
+ARG OPEN_SEARCH_VERSION=3.6.0
 FROM opensearchproject/opensearch:${OPEN_SEARCH_VERSION}
 # COPY --chmod=755 assets/opensearch/init.sh /usr/share/opensearch/config/
 ## Copy all the required resources right from the building of the image

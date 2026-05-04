@@ -147,24 +147,33 @@ function Wait-OpenSearchGreen {
     Fail "OpenSearch did not reach green status in time."
 }
 
-function Test-DbRootPasswordAuth {
+function Get-DbRootPassword {
     param(
         [string]$DbContainer
     )
 
-    try {
-        # Skip password auth probe when MYSQL_ROOT_PASSWORD is empty in container env.
-        & docker exec $DbContainer sh -lc 'test -n "${MYSQL_ROOT_PASSWORD:-}"' 1>$null 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            return $false
-        }
+    return $script:DbRootPassword
+}
 
-        & docker exec $DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent >/dev/null 2>&1' 1>$null 2>$null
-        return ($LASTEXITCODE -eq 0)
+function Get-DbRootMysqlArgs {
+    param(
+        [string]$DbContainer
+    )
+
+    $password = Get-DbRootPassword -DbContainer $DbContainer
+    if (-not [string]::IsNullOrWhiteSpace($password)) {
+        & docker exec $DbContainer mysql -uroot "-p$password" -Nse "SELECT 1" 1>$null 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return @("-uroot", "-p$password")
+        }
     }
-    catch {
-        return $false
+
+    & docker exec $DbContainer mysql -uroot -Nse "SELECT 1" 1>$null 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        return @("-uroot")
     }
+
+    return @()
 }
 
 function Wait-DbReady {
@@ -177,14 +186,8 @@ function Wait-DbReady {
     Write-Info "Waiting for MariaDB in '$DbContainer'..."
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $DbContainer
-        if ($passwordAuthWorks) {
-            & docker exec $DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' 1>$null 2>$null
-        }
-        else {
-            & docker exec $DbContainer mysqladmin ping -uroot --silent 1>$null 2>$null
-        }
-        if ($LASTEXITCODE -eq 0) {
+        $rootArgs = Get-DbRootMysqlArgs -DbContainer $DbContainer
+        if ($rootArgs.Count -gt 0) {
             Write-Ok "MariaDB is ready."
             return
         }
@@ -212,13 +215,12 @@ GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
 FLUSH PRIVILEGES;
 "@
 
-    $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $DbContainer
-    if ($passwordAuthWorks) {
-        $sql | & docker exec -i $DbContainer sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+    $rootArgs = Get-DbRootMysqlArgs -DbContainer $DbContainer
+    if ($rootArgs.Count -eq 0) {
+        Fail "Could not authenticate as MariaDB root user."
     }
-    else {
-        $sql | & docker exec -i $DbContainer mysql -uroot
-    }
+
+    $sql | & docker exec -i $DbContainer mysql @rootArgs
     if ($LASTEXITCODE -ne 0) {
         Fail "Failed to reset database '$DbName'."
     }
@@ -312,14 +314,7 @@ function Invoke-HealthCheck {
     }
 
     & $Check "MariaDB accepting connections" {
-        $passwordAuthWorks = Test-DbRootPasswordAuth -DbContainer $script:DbContainer
-        if ($passwordAuthWorks) {
-            & docker exec $script:DbContainer sh -lc 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' 1>$null 2>$null
-        }
-        else {
-            & docker exec $script:DbContainer mysqladmin ping -uroot --silent 1>$null 2>$null
-        }
-        $LASTEXITCODE -eq 0
+        (Get-DbRootMysqlArgs -DbContainer $script:DbContainer).Count -gt 0
     }
 
     & $Check "Memcached container running" {
@@ -518,6 +513,7 @@ if ([string]::IsNullOrWhiteSpace($OpenSearchCaCert) -or -not (Test-Path $OpenSea
 
 $DbName = "koha_$KohaInstance"
 $DbUser = "koha_$KohaInstance"
+$DbRootPassword = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_ROOT_PASSWORD" -Default "password"
 $ProjectName = Split-Path -Path $RepoRoot -Leaf
 $DbContainer = "$ProjectName-db-1"
 
