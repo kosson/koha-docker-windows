@@ -74,11 +74,29 @@ Be very thorough with these paths. Double check everything. Notice the fact that
 
 3. Generate OpenSearch certificates:
 
-Now, because OpenSearch needs a secure communication between its nodes, we need to create the cryptographic keys it uses. Set execution policy for the current user. In the opened PowerShell, paste the following command and enter it:
+Now, because OpenSearch needs a secure communication between its nodes, we need to create the cryptographic keys it uses. Set execution policy for the current user. 
+
+But first, we need to allow Windows security policies to run our PowerShell scripts. First, go to System -> Advanced and activate `Developer Mode` (On). Then PowerShell -> Change execution policy to allow local PowerShell scripts to run without signing (On). In the opened PowerShell, paste the following command and enter it:
 
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
+
+Confirm it with `A` meaning All. It should be like below:
+
+```powershell
+PS C:\Users\kosson> Get-ExecutionPolicy -List
+
+        Scope ExecutionPolicy
+        ----- ---------------
+MachinePolicy       Undefined
+   UserPolicy       Undefined
+      Process       Undefined
+  CurrentUser    RemoteSigned
+ LocalMachine    RemoteSigned
+```
+
+Restart because Windows.
 
 Now, for every subfolder `OpenSearch-3.6./assets/opensearch/config/os01` ... to `os05` you have a configuration file named `opensearch.yml`. All of them have the exact same hard coded settings for the `plugins.security.nodes_dn option` as value. Modify them for to match your institutional environment. These are only for test and development builds localized to the creator of this project. You should use it as is only to test. Modify it to adapt it to your institution. Also, the `plugins.security.compliance.salt` and `plugins.query.datasources.encryption.masterkey` values will be re-generated every time you run bash `.\opensearch_local_certificates_creator.ps1`, which you should run before starting the rest of the containers using `stack-windows.ps1` script. Down there are the settings you should make your own, Do not touch the value for `CN`. The other values for `OU`, `O`, `L`, `ST`, and `C` should be the ones you seek to modify:
 
