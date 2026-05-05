@@ -607,6 +607,8 @@ Opening Docker Desktop you should have a status like the one in the following sc
 
 ![](DockerDesktop-Usage.png)
 
+After all went well and you are able to access Koha administrator and OPAC using the browser, the management of you installation will be done using Docker Desktop. From here you will stop all the containers when you want to stop th session or come back to a new one.
+
 ## Lifecycle commands
 
 From repository root:
