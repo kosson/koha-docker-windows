@@ -120,6 +120,14 @@ cd .\OpenSearch-3.6
 cd ..
 ```
 
+If you have issues concerning security imposed on running the scripts, run the script with the following:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\opensearch_local_certificates_creator.ps1
+```
+
+It is Windows way. Another way is to right click on the script file and tick the `Unblock` in the `Security` section, or in PowerShell: `Unblock-File -Path .\opensearch_local_certificates_creator.ps1`.
+
 You should obtain in the PowerShell an output similar to the following:
 
 ```txt
@@ -168,6 +176,12 @@ Now, run the command in the PowerShell in the root of your project:
 
 ```powershell
 .\stack-windows.ps1 start
+```
+
+or for the melodramatic Windows, as above:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\stack-windows.ps1 start
 ```
 
 Tip: use `-NoLogs` if you do not want log tailing after startup.
