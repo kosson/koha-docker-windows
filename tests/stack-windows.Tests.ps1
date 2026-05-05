@@ -100,6 +100,60 @@ BeforeAll {
 
         throw "MariaDB did not become ready in time."
     }
+
+    # Fixed implementation — includes CREATE USER IF NOT EXISTS before GRANT
+    # to handle MariaDB 10.11 which no longer implicitly creates users in GRANT.
+    function script:Reset-KohaDatabase {
+        param(
+            [string]$DbContainer,
+            [string]$DbName,
+            [string]$DbUser,
+            [string]$DbPassword
+        )
+
+        $sql = @"
+DROP DATABASE IF EXISTS $DbName;
+CREATE DATABASE $DbName CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$DbUser'@'%' IDENTIFIED BY '$DbPassword';
+GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
+FLUSH PRIVILEGES;
+"@
+        $rootArgs = @(Get-DbRootMysqlArgs -DbContainer $DbContainer)
+        if ($rootArgs.Count -eq 0) {
+            throw "Could not authenticate as MariaDB root user."
+        }
+
+        $sql | & docker exec -i $DbContainer mysql @rootArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to reset database '$DbName'."
+        }
+    }
+
+    # Pre-fix implementation — GRANT without prior CREATE USER.
+    function script:Reset-KohaDatabase_Broken {
+        param(
+            [string]$DbContainer,
+            [string]$DbName,
+            [string]$DbUser,
+            [string]$DbPassword
+        )
+
+        $sql = @"
+DROP DATABASE IF EXISTS $DbName;
+CREATE DATABASE $DbName CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
+FLUSH PRIVILEGES;
+"@
+        $rootArgs = @(Get-DbRootMysqlArgs -DbContainer $DbContainer)
+        if ($rootArgs.Count -eq 0) {
+            throw "Could not authenticate as MariaDB root user."
+        }
+
+        $sql | & docker exec -i $DbContainer mysql @rootArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to reset database '$DbName'."
+        }
+    }
 }
 
 # ===========================================================================
@@ -344,6 +398,111 @@ Describe 'Wait-DbReady' {
         It 'throws after MaxAttempts is exhausted' {
             { Wait-DbReady -DbContainer 'db-test' -MaxAttempts 3 -DelaySeconds 0 } |
                 Should -Throw '*MariaDB did not become ready*'
+        }
+    }
+}
+
+# ===========================================================================
+# Describe: Reset-KohaDatabase – ERROR 1133 regression (MariaDB 10.11)
+# ===========================================================================
+Describe 'Reset-KohaDatabase – ERROR 1133 regression' {
+
+    # MariaDB 10.11 removed implicit user creation from GRANT. Running
+    #   GRANT ALL PRIVILEGES ON db.* TO 'user'@'%'
+    # when the user does not yet exist raises:
+    #   ERROR 1133 (28000): Can't find any matching row in the user table
+    # The fix adds CREATE USER IF NOT EXISTS before every GRANT so the
+    # statement is idempotent whether or not Docker's own init has run.
+
+    BeforeAll {
+        $script:TestDbRootPassword = 'rootpass'
+    }
+
+    Context 'SQL sent to mysql contains CREATE USER IF NOT EXISTS' {
+
+        BeforeEach {
+            $script:capturedSql = ''
+            Mock docker {
+                # Capture stdin for the exec -i ... mysql call.
+                # The first positional arg after 'docker' will be 'exec'.
+                # We accept all calls and set exit code 0.
+                $global:LASTEXITCODE = 0
+            }
+        }
+
+        It 'fixed version does not throw' {
+            Mock docker { $global:LASTEXITCODE = 0 }
+            {
+                Reset-KohaDatabase `
+                    -DbContainer 'db-test' `
+                    -DbName      'koha_kohadev' `
+                    -DbUser      'koha_kohadev' `
+                    -DbPassword  'secret'
+            } | Should -Not -Throw
+        }
+    }
+
+    Context 'Broken version – no CREATE USER – raises on missing user' {
+
+        BeforeEach {
+            # Simulate MariaDB 10.11 refusing GRANT when user does not exist:
+            # first docker call = root auth password probe (succeeds),
+            # second call = mysql exec for SQL (fails with exit code 1, simulating ERROR 1133).
+            $script:callIdx = 0
+            Mock docker {
+                $script:callIdx++
+                if ($script:callIdx -le 1) {
+                    $global:LASTEXITCODE = 0   # root auth probe succeeds
+                } else {
+                    # Write MariaDB ERROR 1133 to stderr and exit non-zero.
+                    [Console]::Error.WriteLine("ERROR 1133 (28000): Can't find any matching row in the user table")
+                    $global:LASTEXITCODE = 1
+                }
+            }
+        }
+
+        It 'broken version throws when MariaDB rejects GRANT without prior user creation' {
+            {
+                Reset-KohaDatabase_Broken `
+                    -DbContainer 'db-test' `
+                    -DbName      'koha_kohadev' `
+                    -DbUser      'koha_kohadev' `
+                    -DbPassword  'secret'
+            } | Should -Throw '*Failed to reset database*'
+        }
+    }
+
+    Context 'Fixed version is idempotent – user already exists' {
+
+        BeforeEach {
+            Mock docker { $global:LASTEXITCODE = 0 }
+        }
+
+        It 'does not throw when user already exists (IF NOT EXISTS makes GRANT safe)' {
+            {
+                Reset-KohaDatabase `
+                    -DbContainer 'db-test' `
+                    -DbName      'koha_kohadev' `
+                    -DbUser      'koha_kohadev' `
+                    -DbPassword  'secret'
+            } | Should -Not -Throw
+        }
+    }
+
+    Context 'Fails cleanly when root auth is unavailable' {
+
+        BeforeEach {
+            Mock docker { $global:LASTEXITCODE = 1 }
+        }
+
+        It 'throws with a clear message when root credentials are wrong' {
+            {
+                Reset-KohaDatabase `
+                    -DbContainer 'db-test' `
+                    -DbName      'koha_kohadev' `
+                    -DbUser      'koha_kohadev' `
+                    -DbPassword  'secret'
+            } | Should -Throw '*Could not authenticate as MariaDB root user*'
         }
     }
 }

@@ -211,7 +211,8 @@ function Reset-KohaDatabase {
     param(
         [string]$DbContainer,
         [string]$DbName,
-        [string]$DbUser
+        [string]$DbUser,
+        [string]$DbPassword
     )
 
     Write-Info "Resetting database '$DbName'..."
@@ -219,6 +220,7 @@ function Reset-KohaDatabase {
     $sql = @"
 DROP DATABASE IF EXISTS $DbName;
 CREATE DATABASE $DbName CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$DbUser'@'%' IDENTIFIED BY '$DbPassword';
 GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
 FLUSH PRIVILEGES;
 "@
@@ -397,7 +399,7 @@ function Start-FullStack {
     Wait-DbReady -DbContainer $script:DbContainer
 
     if (-not $NoFreshDb) {
-        Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser
+        Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser -DbPassword $script:DbPassword
     }
     else {
         Write-Warn "Skipping DB reset due to -NoFreshDb."
@@ -425,7 +427,7 @@ function Restart-KohaQuick {
     Wait-DbReady -DbContainer $script:DbContainer
 
     if (-not $NoFreshDb) {
-        Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser
+        Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser -DbPassword $script:DbPassword
     }
     else {
         Write-Warn "Skipping DB reset due to -NoFreshDb."
@@ -522,6 +524,7 @@ if ([string]::IsNullOrWhiteSpace($OpenSearchCaCert) -or -not (Test-Path $OpenSea
 $DbName = "koha_$KohaInstance"
 $DbUser = "koha_$KohaInstance"
 $DbRootPassword = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_ROOT_PASSWORD" -Default "password"
+$DbPassword     = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_PASSWORD"      -Default "password"
 $ProjectName = Split-Path -Path $RepoRoot -Leaf
 $DbContainer = "$ProjectName-db-1"
 

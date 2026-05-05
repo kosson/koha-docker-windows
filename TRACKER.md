@@ -1788,3 +1788,169 @@ Invoke-Pester .\tests\stack-windows.Tests.ps1 -Output Detailed
 | `tests/stack-windows.Tests.ps1` | New file — 19-test Pester 5 suite for DB readiness functions |
 
 ---
+
+## 2026-05-05 — Fix ERROR 1133: GRANT fails on MariaDB 10.11 when user does not exist
+
+### Issue observed
+
+Running `.\stack-windows.ps1 start` failed during the database reset phase immediately after MariaDB became ready:
+
+```text
+[INFO ] Resetting database 'koha_kohadev'...
+--------------
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%'
+--------------
+
+ERROR 1133 (28000) at line 3: Can't find any matching row in the user table
+Failed to reset database 'koha_kohadev'.
+At C:\...\stack-windows.ps1:19 char:35
++ function Fail([string]$Message) { throw $Message }
+    + FullyQualifiedErrorId : Failed to reset database 'koha_kohadev'.
+```
+
+The error appeared consistently on first start or after a clean volume wipe, and always after MariaDB had finished initialising (the readiness probe had already passed).
+
+---
+
+### Root cause analysis
+
+#### MariaDB 10.11 removed implicit user creation from GRANT
+
+Prior to MariaDB 10.4, running:
+
+```sql
+GRANT ALL PRIVILEGES ON db.* TO 'user'@'%' IDENTIFIED BY 'password';
+```
+
+would silently create the user if it did not exist. Starting from MariaDB 10.4 the `IDENTIFIED BY` clause in `GRANT` was deprecated, and in **MariaDB 10.11** (the version used in this stack via `mariadb:10.11`) attempting to `GRANT` to a non-existent user raises:
+
+```
+ERROR 1133 (28000): Can't find any matching row in the user table
+```
+
+#### Why the user may not exist yet
+
+The MariaDB Docker official image runs SQL init scripts from `/docker-entrypoint-initdb.d/` on first start of a **fresh data volume**. For the `mariadb:10.11` image, the variables `MYSQL_USER` and `MYSQL_PASSWORD` cause an init script to run:
+
+```sql
+CREATE USER IF NOT EXISTS 'koha_kohadev'@'%' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%';
+```
+
+However this init only runs once — when the data volume is brand new. The `Reset-KohaDatabase` function in `stack-windows.ps1` runs on **every** `start` call (unless `-NoFreshDb` is passed). Its SQL sequence was:
+
+```sql
+DROP DATABASE IF EXISTS koha_kohadev;
+CREATE DATABASE koha_kohadev ...;
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%';   ← ERROR 1133 HERE
+FLUSH PRIVILEGES;
+```
+
+The `DROP DATABASE` does not drop the user — only the database. After the `DROP`, the user still exists from the Docker init. On first start (no prior init), however, the user does not yet exist in `mysql.user`, and the `GRANT` line fails.
+
+Additionally, if the data volume is pre-existing from a previous run where `Reset-KohaDatabase` succeeded, the user was not recreated. A subsequent run that drops and recreates the DB still leaves the user, so the `GRANT` works in that case — which is why the error appeared intermittently depending on volume state.
+
+The net result: `Reset-KohaDatabase` was not self-contained. Its correctness depended on external prior state (Docker init having run), making it fragile on first start and on any environment that did not go through the Docker init path.
+
+---
+
+### Fix applied
+
+#### 1. Add `CREATE USER IF NOT EXISTS` before `GRANT` in `Reset-KohaDatabase`
+
+The SQL block in `Reset-KohaDatabase` was changed to always create the user explicitly before granting:
+
+```sql
+-- Before
+DROP DATABASE IF EXISTS koha_kohadev;
+CREATE DATABASE koha_kohadev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%';
+FLUSH PRIVILEGES;
+
+-- After
+DROP DATABASE IF EXISTS koha_kohadev;
+CREATE DATABASE koha_kohadev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'koha_kohadev'@'%' IDENTIFIED BY '<password>';
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%';
+FLUSH PRIVILEGES;
+```
+
+`CREATE USER IF NOT EXISTS` is idempotent:
+- If the user **does not exist** (first start, fresh volume before Docker init): the user is created with the correct password, then the `GRANT` succeeds.
+- If the user **already exists** (Docker init ran, or a previous `Reset-KohaDatabase` call): the statement is a no-op, and the `GRANT` updates permissions as before.
+
+This makes `Reset-KohaDatabase` self-contained and independent of Docker's own init order.
+
+#### 2. Read `KOHA_DB_PASSWORD` from `env/.env`
+
+The `IDENTIFIED BY '<password>'` clause requires the actual Koha DB user password. This value lives in `env/.env` as `KOHA_DB_PASSWORD`. A new variable was added to the setup section of `stack-windows.ps1`:
+
+```powershell
+# Before — only root password was read
+$DbRootPassword = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_ROOT_PASSWORD" -Default "password"
+
+# After — also read the Koha user password
+$DbRootPassword = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_ROOT_PASSWORD" -Default "password"
+$DbPassword     = Get-EnvValue -FilePath $KohaEnvFile -Key "KOHA_DB_PASSWORD"      -Default "password"
+```
+
+#### 3. Pass `-DbPassword` to `Reset-KohaDatabase`
+
+The function signature was updated to accept `-DbPassword` and both call sites were updated:
+
+```powershell
+# Function signature — before
+function Reset-KohaDatabase {
+    param([string]$DbContainer, [string]$DbName, [string]$DbUser)
+
+# Function signature — after
+function Reset-KohaDatabase {
+    param([string]$DbContainer, [string]$DbName, [string]$DbUser, [string]$DbPassword)
+
+# Call sites — before (in Start-FullStack and Restart-KohaQuick)
+Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser
+
+# Call sites — after
+Reset-KohaDatabase -DbContainer $script:DbContainer -DbName $script:DbName -DbUser $script:DbUser -DbPassword $script:DbPassword
+```
+
+---
+
+### Pester regression tests added
+
+Four new tests were added to `tests/stack-windows.Tests.ps1` in a new `Describe` block:
+
+```
+Describing Reset-KohaDatabase — ERROR 1133 regression
+  [+] fixed version does not throw
+  [+] broken version throws when MariaDB rejects GRANT without prior user creation
+  [+] does not throw when user already exists (IF NOT EXISTS makes GRANT safe)
+  [+] throws with a clear message when root credentials are wrong
+```
+
+The test suite also includes `Reset-KohaDatabase_Broken` — the pre-fix implementation without `CREATE USER IF NOT EXISTS` — which is used to prove the old behaviour is correctly reproduced by the mock.
+
+The full suite now has **23 tests, all passing**:
+
+```
+Tests Passed: 23, Failed: 0, Skipped: 0
+```
+
+| Describe block | Tests |
+|---|---|
+| `NativeCommandError regression` | 2 |
+| `Get-DbRootMysqlArgs` | 9 |
+| `StrictMode $null.Count regression` | 5 |
+| `Wait-DbReady` | 3 |
+| `Reset-KohaDatabase – ERROR 1133 regression` | 4 |
+
+---
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `stack-windows.ps1` | Added `$DbPassword` read from env; added `-DbPassword` param to `Reset-KohaDatabase`; added `CREATE USER IF NOT EXISTS` before `GRANT`; updated both call sites |
+| `tests/stack-windows.Tests.ps1` | Added `Reset-KohaDatabase` and `Reset-KohaDatabase_Broken` inline functions to `BeforeAll`; added 4-test `Reset-KohaDatabase – ERROR 1133 regression` describe block |
+
+---
