@@ -170,7 +170,7 @@ The script also updates the compliance salt and SQL master key in all `opensearc
 
 4. Start the full stack
 
-First, start Docker Desktop application. This will run the `docker` application in backgroud. This is mandatory.
+First, start Docker Desktop application. This will run the `docker` application in background. This is mandatory.
 
 Now, run the command in the PowerShell in the root of your project:
 
@@ -182,6 +182,23 @@ or for the melodramatic Windows, as above:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\stack-windows.ps1 start
+```
+
+If an error like the following stops the setup process, just run the script again. The possible error:
+
+```powershell
+[INFO ] Resetting database 'koha_kohadev'...
+--------------
+GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%'
+--------------
+
+ERROR 1133 (28000) at line 3: Can't find any matching row in the user table
+Failed to reset database 'koha_kohadev'.
+At C:\Users\Alina\Documents\koha-docker-windows\stack-windows.ps1:19 char:35
++ function Fail([string]$Message) { throw $Message }
++                                   ~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Failed to reset database 'koha_kohadev'.:String) [], RuntimeException
+    + FullyQualifiedErrorId : Failed to reset database 'koha_kohadev'.
 ```
 
 Tip: use `-NoLogs` if you do not want log tailing after startup.
