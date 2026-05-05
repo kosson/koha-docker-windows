@@ -162,15 +162,23 @@ function Get-DbRootMysqlArgs {
 
     $password = Get-DbRootPassword -DbContainer $DbContainer
     if (-not [string]::IsNullOrWhiteSpace($password)) {
-        & docker exec $DbContainer mysql -uroot "-p$password" -Nse "SELECT 1" 1>$null 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            return @("-uroot", "-p$password")
+        try {
+            $null = & docker exec $DbContainer mysql -uroot "-p$password" -Nse "SELECT 1" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                return @("-uroot", "-p$password")
+            }
+        } catch {
+            # MariaDB not ready yet; NativeCommandError suppressed intentionally.
         }
     }
 
-    & docker exec $DbContainer mysql -uroot -Nse "SELECT 1" 1>$null 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        return @("-uroot")
+    try {
+        $null = & docker exec $DbContainer mysql -uroot -Nse "SELECT 1" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            return @("-uroot")
+        }
+    } catch {
+        # MariaDB not ready yet; NativeCommandError suppressed intentionally.
     }
 
     return @()
@@ -186,7 +194,7 @@ function Wait-DbReady {
     Write-Info "Waiting for MariaDB in '$DbContainer'..."
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
-        $rootArgs = Get-DbRootMysqlArgs -DbContainer $DbContainer
+        $rootArgs = @(Get-DbRootMysqlArgs -DbContainer $DbContainer)
         if ($rootArgs.Count -gt 0) {
             Write-Ok "MariaDB is ready."
             return
@@ -215,7 +223,7 @@ GRANT ALL PRIVILEGES ON $DbName.* TO '$DbUser'@'%';
 FLUSH PRIVILEGES;
 "@
 
-    $rootArgs = Get-DbRootMysqlArgs -DbContainer $DbContainer
+    $rootArgs = @(Get-DbRootMysqlArgs -DbContainer $DbContainer)
     if ($rootArgs.Count -eq 0) {
         Fail "Could not authenticate as MariaDB root user."
     }
@@ -314,7 +322,7 @@ function Invoke-HealthCheck {
     }
 
     & $Check "MariaDB accepting connections" {
-        (Get-DbRootMysqlArgs -DbContainer $script:DbContainer).Count -gt 0
+        @(Get-DbRootMysqlArgs -DbContainer $script:DbContainer).Count -gt 0
     }
 
     & $Check "Memcached container running" {
