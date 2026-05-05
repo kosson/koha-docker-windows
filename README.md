@@ -3,13 +3,15 @@
 This project is a derivation of the `https://github.com/kosson/koha-docker` repo. It's for those who use Windows as main development platform. In the aforementioned repo some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker).
 All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file.
 
+Use the source code as is. Remember this is a development project to experiment with Koha, to migrate data, etc. This is not a production suite.
+
 ## Scope
 
 Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the verion is Koha 25.12.00. Koha needs a database (MariaDB), a caching mecanism (Memcache), an indexing engine (OpenSearch), and a proxy for accesing the instalation in the browser (Traefik).
 
 ## Prerequisites
 
-You need to have a fairly well endowed computer to run these services. Only the RAM needs to be at lear 16Gb which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection. First thing on the list is installing Docker Desktop. This is the main ingredient. Follow, the list:
+You need to have a fairly well endowed computer to run these services. All the final product will need around 12Gb of RAM to run comfortable. The RAM of your computer needs to be at least 16Gb, which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection. First thing on the list is installing Docker Desktop. This is the main ingredient. Follow, the list:
 
 - Docker Desktop (Linux containers mode)
 - PowerShell 5.1+
@@ -45,9 +47,13 @@ OpenSSL is also part of the Git for Windows as mentioned prior.
 
 Now, it is the time to install Docker Desktop if you haven't done that already - https://docs.docker.com/get-started/get-docker/.
 
+Download the code for the project from this repo. Look at the green buton `Code`, and choose to download the zip version. If you have an account at Github use it to download the resources. After you have downloaded the code, unarchive it to a folder of your own choosing. A good idea is to put it in a `DEVELOPMENT` subfolder in `Documents`. This is just a sugestion. Now, after you have unzipped the filed, unfortunately, the source code is put in another subfolder called `koha-docker-windows-main`. Enter it, cut all the content, and paste it above so everything is in the correct subfolder named `koha-docker-windows`. This is a Github zipping process quirk. After you move the content, the `koha-docker-windows-main` is empty, so delete it, so it stops being a useless cruft.
+
+Now, the `koha-docker-windows` sobfolder will be named _root folder_ from now on.
+
 ## Quick start
 
-1. Clone Koha source in the repository root. We need all the source code of Koha, so, being in the root folder of your project, run in the PowerShell in the root of the project:
+1. We need all the source code of Koha ILS, so, being in the root folder of your project, run in the PowerShell in the root of the project:
 
 ```powershell
 git clone --depth=1 https://git.koha-community.org/Koha-community/Koha.git koha
