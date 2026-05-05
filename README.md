@@ -1,17 +1,17 @@
 ﻿# koha-docker-windows
 
-This project is a derivation of the `https://github.com/kosson/koha-docker` repo. It's for those who use Windows as main development platform. In the aforementioned repo some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker).
+This project is a derivation of the `https://github.com/kosson/koha-docker` repo. It's for those who use Windows as their main development platform. In the aforementioned repo some very sound patterns and ideas were taken from the work done for the project at [koha-testing-docker (a.k.a. KTD)](https://gitlab.com/koha-community/koha-testing-docker).
 All the heavy lifting was done using AI agents via a Github subscription. Most of the avatars during development can be tracked if you look into the TRACKER.md file.
 
 Use the source code as is. Remember this is a development project to experiment with Koha, to migrate data, etc. This is not a production suite.
 
 ## Scope
 
-Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the verion is Koha 25.12.00. Koha needs a database (MariaDB), a caching mecanism (Memcache), an indexing engine (OpenSearch), and a proxy for accesing the instalation in the browser (Traefik).
+Building a cluster of Docker containers that gives the possibility to work with Koha latest version. At the time of this repo initialization the version is Koha 25.12.00. Koha needs a database (MariaDB), a caching mechanism (Memcache), an indexing engine (OpenSearch), and a proxy for accessing the installation in the browser (Traefik).
 
 ## Prerequisites
 
-You need to have a fairly well endowed computer to run these services. All the final product will need around 12Gb of RAM to run comfortable. The RAM of your computer needs to be at least 16Gb, which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection. First thing on the list is installing Docker Desktop. This is the main ingredient. Follow, the list:
+You need to have a fairly well endowed computer to run these services. All the final product will need around 12Gb of RAM to run comfortably. The RAM of your computer needs to be at least 16Gb, which is not that rare these days. You need to activate virtualization in BIOS so that some cores of your processors may be "borrowed" for the containers we raise for each of the components. Also, you need to have a good Internet connection. First thing on the list is installing Docker Desktop. This is the main ingredient. Follow, the list:
 
 - Docker Desktop (Linux containers mode)
 - PowerShell 5.1+
@@ -21,7 +21,7 @@ You need to have a fairly well endowed computer to run these services. All the f
 Notes:
 
 - The OpenSearch certificate generator auto-detects `openssl.exe` from common Git for Windows (https://git-scm.com/install/windows) locations.
-- OpenSSL in PATH is optional. The script will try and solve this automaticaly. Further down there a instructions on how you could install it by yourself if you want to.
+- OpenSSL in PATH is optional. The script will try and solve this automatically. Further down there are instructions on how you could install it by yourself if you want to.
 - For Docker you need at least 8Gb of RAM, a 64bit processor with at least four cores (8 threads), at least 20Gb of HDD/SSD, and virtualization activated in BIOS/EFI to avoid errors described in the following online document: https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/topics/#docker-desktop-fails-due-to-virtualization-not-working.
 
 Check the needed tools if they are installed:
@@ -33,7 +33,7 @@ docker compose version
 wsl --version
 ```
 
-Every command from the listed above run in the PowerShell should yield the version of the installed package. Solve these requirements first. Copy every command on each line separately.
+Every command listed above, run in PowerShell, should yield the version of the installed package. Solve these requirements first. Run each command on a separate line.
 If you do not have WSL install it with `wsl --install`. If you have it, update it: `wsl --update`.
 
 Optional check for OpenSSL. OpenSSL is very important being used in cryptographic keys generation (see OpenSearch):
@@ -43,13 +43,13 @@ openssl version
 ```
 
 If you don't have OpenSSL installed run in PowerShell (as Administrator) the following: `winget install --id=FireDaemon.OpenSSL -e`. Close PowerShell and open it again. Check for version. If no answer is given in the shell, then it needs to be added to the PATH. Run in the shell the following: `$Env:PATH += ";C:\Program Files\FireDaemon OpenSSL 3\bin"`.
-OpenSSL is also part of the Git for Windows as mentioned prior.
+OpenSSL is also part of Git for Windows as mentioned previously.
 
 Now, it is the time to install Docker Desktop if you haven't done that already - https://docs.docker.com/get-started/get-docker/.
 
-Download the code for the project from this repo. Look at the green buton `Code`, and choose to download the zip version. If you have an account at Github use it to download the resources. After you have downloaded the code, unarchive it to a folder of your own choosing. A good idea is to put it in a `DEVELOPMENT` subfolder in `Documents`. This is just a sugestion. Now, after you have unzipped the filed, unfortunately, the source code is put in another subfolder called `koha-docker-windows-main`. Enter it, cut all the content, and paste it above so everything is in the correct subfolder named `koha-docker-windows`. This is a Github zipping process quirk. After you move the content, the `koha-docker-windows-main` is empty, so delete it, so it stops being a useless cruft.
+Download the code for the project from this repo. Look at the green button `Code`, and choose to download the zip version. If you have an account at GitHub, use it to download the resources. After you have downloaded the code, unarchive it to a folder of your own choosing. A good idea is to put it in a `DEVELOPMENT` subfolder in `Documents`. This is just a suggestion. Now, after you have unzipped the files, unfortunately, the source code is placed in another subfolder called `koha-docker-windows-main`. Enter it, cut all the content, and paste it above so everything is in the correct subfolder named `koha-docker-windows`. This is a GitHub zipping process quirk. After you move the content, the `koha-docker-windows-main` folder is empty, so delete it, as it is now useless cruft.
 
-Now, the `koha-docker-windows` sobfolder will be named _root folder_ from now on.
+Now, the `koha-docker-windows` subfolder will be referred to as the _root folder_ from now on.
 
 ## Quick start
 
@@ -74,7 +74,7 @@ Be very thorough with these paths. Double check everything. Notice the fact that
 
 3. Generate OpenSearch certificates:
 
-Now, because OpenSearch needs a secure communication between its nodes, we need to create the cryptographic keys it uses. Set execution policy for the current user. 
+Now, because OpenSearch needs a secure communication between its nodes, we need to create the cryptographic keys it uses. Set execution policy for the current user.
 
 But first, we need to allow Windows security policies to run our PowerShell scripts. First, go to System -> Advanced and activate `Developer Mode` (On). Then PowerShell -> Change execution policy to allow local PowerShell scripts to run without signing (On). In the opened PowerShell, paste the following command and enter it:
 
@@ -98,7 +98,7 @@ MachinePolicy       Undefined
 
 Restart because Windows.
 
-Now, for every subfolder `OpenSearch-3.6./assets/opensearch/config/os01` ... to `os05` you have a configuration file named `opensearch.yml`. All of them have the exact same hard coded settings for the `plugins.security.nodes_dn option` as value. Modify them for to match your institutional environment. These are only for test and development builds localized to the creator of this project. You should use it as is only to test. Modify it to adapt it to your institution. Also, the `plugins.security.compliance.salt` and `plugins.query.datasources.encryption.masterkey` values will be re-generated every time you run bash `.\opensearch_local_certificates_creator.ps1`, which you should run before starting the rest of the containers using `stack-windows.ps1` script. Down there are the settings you should make your own, Do not touch the value for `CN`. The other values for `OU`, `O`, `L`, `ST`, and `C` should be the ones you seek to modify:
+Now, for every subfolder `OpenSearch-3.6./assets/opensearch/config/os01` ... to `os05` you have a configuration file named `opensearch.yml`. All of them have the exact same hard coded settings for the `plugins.security.nodes_dn option` as value. Modify them to match your institutional environment. These are only for test and development builds localized to the creator of this project. You should use it as is only to test. Modify it to adapt it to your institution. Also, the `plugins.security.compliance.salt` and `plugins.query.datasources.encryption.masterkey` values will be re-generated every time you run bash `.\opensearch_local_certificates_creator.ps1`, which you should run before starting the rest of the containers using `stack-windows.ps1` script. Below are the settings you should make your own. Do not touch the value for `CN`. The other values for `OU`, `O`, `L`, `ST`, and `C` are the ones you should modify:
 
 ```yaml
 plugins.security.nodes_dn:
@@ -110,7 +110,7 @@ plugins.security.nodes_dn:
   - 'CN=dashboards,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
 ```
 
-Yoy may leave it like this to work without this headache. There is not a problem because the cryptographic keys generated are local to your project. Remember to modify all the `opensearch.yml` for all the nodes.
+You may leave it like this to work without this headache. There is not a problem because the cryptographic keys generated are local to your project. Remember to modify all the `opensearch.yml` for all the nodes.
 
 Then run the following commands separately (every command on each line in order):
 
@@ -203,9 +203,9 @@ At C:\Users\Alina\Documents\koha-docker-windows\stack-windows.ps1:19 char:35
 
 Tip: use `-NoLogs` if you do not want log tailing after startup.
 
-Confirm any messages from Docker Desktop concerning acces to networks.
+Confirm any messages from Docker Desktop concerning access to networks.
 
-First, the OpenSearch cluster is formed, then the Traefik container, MariaDB and Memcached, and finaly the Koha container. Following is a succession of mesages you should see:
+First, the OpenSearch cluster is formed, then the Traefik container, MariaDB and Memcached, and finally the Koha container. Following is a succession of mesages you should see:
 
 ```powershell
 =============================================
@@ -603,11 +603,24 @@ koha-1  | koha-testing-docker has started up and is ready to be enjoyed!
 ```
 
 You should be patient with this last step because it takes a lot of time to complete.
+If you get the following message, stop process with CTRL+c combo, and rerun the command `.\stack-windows.ps1 start`.
+
+```powershell
+koha-1  | [elasticsearch] attempt 40/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 41/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 42/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 43/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 44/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 45/60: OpenSearch not ready yet
+```
+
+In case you messed up bad, open Docker desktop, stop all the containers, delete all the volumes, and start all over again. If this happens it means that you have tried in the past, and there are some leftover volumes that mess up things. Delete the volumes, run the script again, and the joyful message `koha-testing-docker has started up and is ready to be enjoyed!` will make your day. Yeeey!
+
 Opening Docker Desktop you should have a status like the one in the following screenshot:
 
 ![](DockerDesktop-Usage.png)
 
-After all went well and you are able to access Koha administrator and OPAC using the browser, the management of you installation will be done using Docker Desktop. From here you will stop all the containers when you want to stop th session or come back to a new one.
+After everything went well and you are able to access the Koha administrator and OPAC using the browser, the management of your installation will be done using Docker Desktop. From here you will stop all the containers when you want to stop the session or start a new one.
 
 ## Lifecycle commands
 
