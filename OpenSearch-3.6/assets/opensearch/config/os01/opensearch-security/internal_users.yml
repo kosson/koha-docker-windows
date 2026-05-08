@@ -3,13 +3,13 @@ _meta:
   type: "internalusers"
   config_version: 2
 admin:
-  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  hash: "$2y$12$26Bj2gnCZQiIa712cHLOXe9Ev..5LImx0bbQF5f/EPcY.EqYRMUXi"
   reserved: true
   backend_roles:
   - "admin"
   description: "Admin user"
 dashboards:
-  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  hash: "$2y$12$26Bj2gnCZQiIa712cHLOXe9Ev..5LImx0bbQF5f/EPcY.EqYRMUXi"
   backend_roles:
   - "admin"
   - "dashboards"
@@ -17,6 +17,6 @@ dashboards:
   - "dashboards"
   description: "User that Dashboard will access OpenSearch"
 kibanaserver:
-  hash: "$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh.ld55jnI2jC./euDVqsoaRt6kY/XSy"
+  hash: "$2y$12$26Bj2gnCZQiIa712cHLOXe9Ev..5LImx0bbQF5f/EPcY.EqYRMUXi"
   reserved: true
   description: "Demo kibanaserver user"

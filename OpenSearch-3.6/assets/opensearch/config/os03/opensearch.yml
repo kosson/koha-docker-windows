@@ -63,6 +63,6 @@ plugins.security.nodes_dn:
   - 'CN=dashboards,OU=DFCTI,O=NIPNE,L=Magurele,ST=ILFOV,C=RO'
 http.detailed_errors.enabled: true
 # W2: compliance field-masking salt (must be identical on all nodes)
-plugins.security.compliance.salt: "i6BlN7qzueRkKzgM"
+plugins.security.compliance.salt: "eFvhhAjewXE7CTL7"
 # W3: SQL plugin datasource encryption master key
-plugins.query.datasources.encryption.masterkey: "8907be10e7764d4719baf449b9351f03"
+plugins.query.datasources.encryption.masterkey: "3dcedc0ea9fca3652c9f35a82b81515c"

@@ -1,4 +1,9 @@
 #!/bin/bash
+# run.sh — Koha container entrypoint.
+# NOTE: This file is BAKED INTO THE IMAGE at build time (see Dockerfile: COPY files/run.sh).
+# Editing this file on the host has NO effect until the image is rebuilt:
+#   .\stack-windows.ps1 start -BuildKoha
+# RUN_SH_VERSION=2026-05-08
 
 set -e
 
@@ -398,12 +403,36 @@ fi
 
 if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
     echo "[elasticsearch] Waiting for OpenSearch endpoint from Koha container..."
+
+    # Determine which CA cert to use for TLS verification.
+    _os_cacert_args=()
+    if [ -s "/kohadevbox/opensearch-root-ca.pem" ]; then
+        _os_cacert_args=(--cacert "/kohadevbox/opensearch-root-ca.pem")
+        echo "[elasticsearch] Using root-ca at /kohadevbox/opensearch-root-ca.pem"
+    else
+        _os_cacert_args=(-k)
+        echo "[elasticsearch] WARNING: opensearch-root-ca.pem not found, skipping TLS verification"
+    fi
+
     os_wait_ok="no"
     for attempt in $(seq 1 60); do
-        os_status=$(curl -ks --connect-timeout 3 --max-time 8 \
+        # Quick TCP reachability check before attempting the full HTTPS request.
+        if ! nc -z -w 3 os01 9200 2>/dev/null; then
+            echo "[elasticsearch] attempt ${attempt}/60: TCP port os01:9200 not reachable"
+            sleep 5
+            continue
+        fi
+
+        os_response=$(curl -s "${_os_cacert_args[@]}" \
+            --connect-timeout 5 --max-time 10 \
             -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" \
-            "https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=5s" \
-            | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' | head -n 1)
+            -w "\nHTTP_STATUS:%{http_code}" \
+            "https://os01:9200/_cluster/health?wait_for_status=yellow&timeout=5s" 2>&1)
+
+        os_http_code=$(echo "${os_response}" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
+        os_status=$(echo "${os_response}" \
+            | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([a-z]*\)".*/\1/p' \
+            | head -n 1)
 
         if [ "${os_status}" = "yellow" ] || [ "${os_status}" = "green" ]; then
             os_wait_ok="yes"
@@ -411,7 +440,10 @@ if [ "${KOHA_ELASTICSEARCH}" = "yes" ]; then
             break
         fi
 
-        echo "[elasticsearch] attempt ${attempt}/60: OpenSearch not ready yet"
+        echo "[elasticsearch] attempt ${attempt}/60: OpenSearch not ready yet (HTTP ${os_http_code:-no-response})"
+        if [ "${attempt}" = "1" ] || [ $((attempt % 10)) -eq 0 ]; then
+            echo "[elasticsearch] Last response: $(echo "${os_response}" | grep -v 'HTTP_STATUS' | head -c 300)"
+        fi
         sleep 5
     done
 
