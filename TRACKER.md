@@ -1651,6 +1651,225 @@ The failure was not a missing package. It was a transient package download timeo
 
 ---
 
+## 2026-05-08 — OpenSearch admin password mismatch (Koha container exits with code 1)
+
+### Symptom
+
+Koha container exits with code 1 after exhausting all 60 wait attempts:
+
+```
+koha-1  | [elasticsearch] Waiting for OpenSearch endpoint from Koha container...
+koha-1  | [elasticsearch] attempt 1/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 2/60: OpenSearch not ready yet
+koha-1  | [elasticsearch] attempt 3/60: OpenSearch not ready yet
+...
+koha-1  | [elasticsearch] OpenSearch did not become ready in time.
+koha-1 exited with code 1
+```
+
+The OpenSearch cluster was healthy (all 5 nodes, green status, `os01` healthy check
+passing). The wait loop was reaching `os01:9200` over TCP but all HTTPS requests returned
+HTTP 401 Unauthorized. With no successful response, `run.sh` timed out after 5 minutes
+(60 × 5 s) and exited.
+
+---
+
+### Diagnosis
+
+**Step 1 — Confirm TCP connectivity.** A probe container on `opensearch-36_osearch`
+confirmed port 9200 was reachable and responding:
+
+```powershell
+docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+    -sk -w "\nHTTP_STATUS:%{http_code}\n" "https://os01:9200/_cluster/health"
+# → HTTP_STATUS:401
+```
+
+**Step 2 — Test known password.** Probing with `admin:test@Cici24#ANA` (the value in
+`OPENSEARCH_INITIAL_ADMIN_PASSWORD`) returned 401. Probing with `admin:admin` returned
+200:
+
+```powershell
+docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+    -sk -u "admin:admin" -w "\nHTTP_STATUS:%{http_code}\n" "https://os01:9200/_cluster/health"
+# → HTTP_STATUS:200
+```
+
+**Root cause.** The bcrypt hash stored in
+`OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml`
+was generated from the default password `admin`, not from `test@Cici24#ANA`. This was
+previously documented as fixed (FIXES.md C7) but the fix was never applied — the file
+still held the old hash.
+
+When the OpenSearch cluster starts for the first time it pushes the contents of
+`internal_users.yml` into the `.opendistro_security` index. On this cluster, that index
+was populated on the first-ever start with the wrong hash, so the admin account always
+authenticated with `admin` regardless of what `.env` declared.
+
+The `run.sh` wait loop sends:
+
+```bash
+curl -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" "https://os01:9200/_cluster/health"
+```
+
+Since `OPENSEARCH_INITIAL_ADMIN_PASSWORD=test@Cici24#ANA` but the live password was
+`admin`, every request got 401, no `"status"` field was found in the response, and the
+loop ran all 60 iterations before giving up.
+
+---
+
+### Root cause summary
+
+| Layer | Problem |
+|---|---|
+| `internal_users.yml` | Bcrypt hash was for `admin`, not for `test@Cici24#ANA` |
+| `.opendistro_security` index | Already initialised from the wrong hash on first cluster start |
+| `run.sh` wait loop | Received HTTP 401 on every attempt; interpreted as "not ready" rather than "auth failure" |
+
+---
+
+### Fix
+
+#### Part 1 — Immediate: change password in the live security index
+
+The OpenSearch Security REST API was used to update the `admin` and `dashboards` users
+while the cluster was already running, authenticating with the old `admin` password:
+
+```powershell
+# Write request body to a file (avoids PowerShell/shell quoting + BOM issues)
+$enc = New-Object System.Text.UTF8Encoding $false
+$json = '{"password":"test@Cici24#ANA","backend_roles":["admin"],"description":"Admin user"}'
+[System.IO.File]::WriteAllText("$env:TEMP\osreq.json", $json, $enc)
+docker cp "$env:TEMP\osreq.json" os01:/tmp/osreq.json
+
+# Apply via admin TLS cert (cert-based auth bypasses password auth)
+docker exec os01 curl -sk -u "admin:admin" `
+  --cert  /usr/share/opensearch/config/admin.pem `
+  --key   /usr/share/opensearch/config/admin-key.pem `
+  --cacert /usr/share/opensearch/config/root-ca.pem `
+  -X PUT "https://os01:9200/_plugins/_security/api/internalusers/admin" `
+  -H "Content-Type: application/json" `
+  --data-binary "@/tmp/osreq.json"
+# → {"status":"OK","message":"'admin' updated."}
+```
+
+The same was done for the `dashboards` user.
+
+**Verification:**
+
+```powershell
+docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+    -sk -u "admin:test@Cici24#ANA" -w "\nHTTP_STATUS:%{http_code}\n" `
+    "https://os01:9200/_cluster/health"
+# → {"status":"green",...} HTTP_STATUS:200
+```
+
+#### Part 2 — Permanent: update `internal_users.yml` with the correct hash
+
+Generated the correct bcrypt hash using OpenSearch's own `hash.sh` tool:
+
+```powershell
+docker exec os01 sh -c "JAVA_HOME=/usr/share/opensearch/jdk \
+    /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh \
+    -p 'test@Cici24#ANA' 2>/dev/null | tail -1"
+# → $2y$12$aTj6eISrUOH315vhxmboSOAg.AylK0e6glzD/LpR/ENowpd8NOrJa
+```
+
+Updated all three user entries (`admin`, `dashboards`, `kibanaserver`) in
+`OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml`
+from the old hash (`$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh...`) to the new one
+(`$2y$12$aTj6eISrUOH315vhxmboSOAg...`).
+
+This ensures that on any future `docker compose down -v && docker compose up -d` (which
+reinitialises the security index from the YAML files), the cluster will start with
+`test@Cici24#ANA` as the admin password, matching what `env/.env` declares.
+
+#### Part 3 — Detection: add password-auth health check to `stack-windows.ps1`
+
+Added a new check `"OpenSearch admin password matches env"` to `Invoke-HealthCheck`:
+
+```powershell
+& $Check "OpenSearch admin password matches env" {
+    $osUp = (& docker inspect --format "{{.State.Health.Status}}" os01 2>$null) -eq "healthy"
+    if (-not $osUp) { return $false }
+    $code = & docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+        -sk -u "admin:$($script:OpenSearchPassword)" `
+        -w "%{http_code}" -o /dev/null `
+        "https://os01:9200/_cluster/health" 2>$null
+    $code -eq "200"
+}
+```
+
+Running `.\stack-windows.ps1 health` now reports:
+
+- `[ PASS ] OpenSearch admin password matches env` → password in `.env` matches live cluster
+- `[ FAIL ] OpenSearch admin password matches env` → password mismatch; fix `internal_users.yml` and reset the cluster
+
+#### Part 4 — Prevention note in `run.sh`
+
+The wait loop already outputs HTTP status per attempt (added in the 2026-05-08 run.sh
+improvement session). A 401 response is now visible in the log:
+
+```
+[elasticsearch] attempt 1/60: OpenSearch not ready yet (HTTP 401)
+```
+
+This distinguishes an auth failure from a genuine connectivity or startup delay, guiding
+future debugging without needing the diagnostic steps above.
+
+---
+
+### When does this affect you?
+
+This issue surfaces on a **cold start** (i.e., `docker compose down -v`) of the
+OpenSearch cluster whenever `internal_users.yml` is out of sync with the password
+declared in `.env`. Two common triggers:
+
+1. The cluster volumes were deleted (`down -v`) and the cluster reinitialised from the
+   YAML files — which contained the wrong hash.
+2. The `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `.env` was changed after the cluster was
+   first started, but `internal_users.yml` was not updated to match.
+
+On a **warm start** (volumes preserved, `docker compose down` without `-v`) the security
+index survives and the live password continues to work even if the YAML file is wrong.
+
+---
+
+### If you change the admin password in future
+
+When you change `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` and
+`OpenSearch-3.6/.env`, you **must** also regenerate the bcrypt hash and update
+`internal_users.yml`. Use the helper already on the `os01` image:
+
+```powershell
+# Generate hash for the new password
+docker exec os01 sh -c "JAVA_HOME=/usr/share/opensearch/jdk \
+    /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh \
+    -p 'YOUR_NEW_PASSWORD' 2>/dev/null | tail -1"
+```
+
+Paste the resulting `$2y$12$...` string into all three user entries in
+`OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml`.
+
+Then verify synchronisation before starting Koha:
+
+```powershell
+.\stack-windows.ps1 health
+# Expect: [ PASS ] OpenSearch admin password matches env
+```
+
+---
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml` | All three user hashes updated from `$2y$12$yhNT2gJk4FXQ7ZstjdqxWeh...` to `$2y$12$aTj6eISrUOH315vhxmboSOAg...` (bcrypt of `test@Cici24#ANA`) |
+| `stack-windows.ps1` | Added `"OpenSearch admin password matches env"` check to `Invoke-HealthCheck` |
+
+---
+
+
 ## 2026-05-05 — Fix NativeCommandError: MariaDB readiness probe under EAP=Stop
 
 ### Issue observed
@@ -1952,5 +2171,355 @@ Tests Passed: 23, Failed: 0, Skipped: 0
 |---|---|
 | `stack-windows.ps1` | Added `$DbPassword` read from env; added `-DbPassword` param to `Reset-KohaDatabase`; added `CREATE USER IF NOT EXISTS` before `GRANT`; updated both call sites |
 | `tests/stack-windows.Tests.ps1` | Added `Reset-KohaDatabase` and `Reset-KohaDatabase_Broken` inline functions to `BeforeAll`; added 4-test `Reset-KohaDatabase – ERROR 1133 regression` describe block |
+
+---
+
+## 2026-05-06 — Remove `network: host` from build to fix apt failures on Windows
+
+### Issue observed
+
+On some Windows systems the image build failed at the first large apt install step, after all 4 retry attempts:
+
+```text
+failed to solve: process "/bin/sh -c /bin/sh /usr/local/bin/apt-install-retry
+    apache2 build-essential codespell cpanminus git ...
+    iproute2" did not complete successfully: exit code: 1
+```
+
+The error was reported on a machine belonging to another user (`Georgiana`). The build succeeded on the original development machine but consistently failed on other Windows systems.
+
+### Root cause
+
+The `koha` service build block in `docker-compose.yml` had:
+
+```yaml
+build:
+  context: .
+  network: host
+```
+
+`network: host` instructs Docker to share the host's network stack with the build container. On Linux this works as intended (the build container uses the host NIC/DNS directly). On Windows, however, Docker Desktop runs all containers inside an invisible Linux VM (WSL2 or Hyper-V). When `network: host` is set for a build, the build container is attached to that VM's virtual network interface — **not** to the Windows host's network.
+
+On machines with a VPN active, a corporate firewall, custom DNS servers configured at the Windows level, or certain Docker Desktop network isolation settings, the VM's virtual NIC cannot reach Ubuntu's apt mirrors. The `apt-get update` calls inside the build therefore fail on every attempt, ultimately triggering the `exit code: 1` from the retry helper.
+
+### Why the image can be pre-built and distributed via Docker Hub
+
+The Dockerfile `COPY`s all required runtime files (`files/run.sh`, `files/templates/`, `files/git_hooks/`, `env/defaults.env`) into the image at build time. There are **no build-time dependencies on local files** beyond those copies.
+
+This means the image is fully self-contained and can be:
+
+1. Built once on a machine with reliable network access.
+2. Pushed to Docker Hub (e.g., `docker push your-org/koha-dev:main`).
+3. Pulled by any other user by replacing the `build:` block in `docker-compose.yml` with `image: your-org/koha-dev:main`.
+
+Other users would then only need the `docker-compose.yml`, their `env/.env`, and the Koha source checkout — no local Docker build required.
+
+### Fix applied
+
+Removed `network: host` from the build block. Docker Desktop uses its own NAT/DNS bridge for builds by default, which works correctly on all platforms and does not require `network: host`.
+
+```yaml
+# Before
+build:
+  context: .
+  network: host
+
+# After
+build:
+  context: .
+```
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `docker-compose.yml` | Removed `network: host` from the `koha` service `build:` block |
+
+---
+
+## 2026-05-08 — Docker image build fails at apt install: "Release file not valid yet" (WSL2 clock drift)
+
+### Symptom
+
+Running `docker build -t kosson/koha-windows:latest .` failed at the first large
+`apt-install-retry` step after all 4 retry attempts:
+
+```
+#11 3.897 E: Release file for
+http://azure.archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease is not
+valid yet (invalid for another 4min 7s). Updates for this repository will not
+be applied.
+#11 3.899 apt-install-retry: attempt 1 failed; retrying...
+#11 12.31 E: Release file for ...noble-updates/InRelease is not valid yet
+       (invalid for another 3min 59s). ...
+#11 12.31 apt-install-retry: attempt 2 failed; retrying...
+...
+#11 44.53 apt-install-retry: failed after 4 attempts
+#11 ERROR: process "..." did not complete successfully: exit code: 1
+```
+
+Every retry attempt reduced the lag by a few seconds (the real clock advanced) but not
+fast enough — after 4 × 5 s + 10 s + 15 s = 44 s of retries, the drift was still ~3.5
+minutes. All four attempts failed with the same error.
+
+### Root cause
+
+Docker Desktop on Windows runs containers inside a Hyper-V/WSL2 virtual machine. The
+VM's clock can lag behind real time after the host wakes from sleep or after a period
+of idle (Hyper-V clock synchronisation is not continuous). In this case the VM clock
+was ~4 minutes behind real wall time.
+
+When `apt-get update` fetches an `InRelease` file from the mirror, apt checks whether
+the file's `Date:` header is more than `Acquire::Max-FutureTime` seconds in the future.
+The default value of `Max-FutureTime` is **10 seconds**. Because the container clock
+was ~4 minutes behind, the freshly-downloaded InRelease appeared to be ~4 minutes in
+the future — well over the 10-second threshold — so apt rejected the entire
+`noble-updates` repository index with "not valid yet".
+
+As a result, the `noble-updates` package index was never loaded, and any package that
+was only available from `noble-updates` (or had a newer version there) failed with
+"Unable to locate package" or used an outdated version, eventually causing the install
+to fail.
+
+#### Why `Acquire::Check-Valid-Until "false"` did NOT fix this
+
+Before finding the root cause, `Acquire::Check-Valid-Until "false"` was tried as a fix.
+This setting controls the **`Valid-Until`** field — the expiry date of a Release file
+(i.e., whether the file is too *old*). It is completely unrelated to the `Date:` field
+check that triggers "not valid yet". Setting it had no effect on the failure.
+
+The two apt settings address opposite directions of time:
+
+| apt error | Direction | Field | Controlling setting |
+|---|---|---|---|
+| `Release file expired` | File is too **old** | `Valid-Until` | `Acquire::Check-Valid-Until "false"` |
+| `Release file not valid yet` | File is too **new** (clock drift) | `Date` | `Acquire::Max-FutureTime "N"` |
+
+### Fix
+
+#### 1. `Acquire::Max-FutureTime "86400"` in the apt config layer
+
+In the Dockerfile `RUN` block that writes `/etc/apt/apt.conf.d/80-retries`, replaced
+`Acquire::Check-Valid-Until "false"` with `Acquire::Max-FutureTime "86400"`:
+
+```dockerfile
+RUN echo 'Acquire::Retries "8";'                    >  /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::http::Timeout "600";'          >> /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::https::Timeout "600";'         >> /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::Queue-Mode "host";'            >> /etc/apt/apt.conf.d/80-retries \
+    && echo 'Acquire::Max-FutureTime "86400";'       >> /etc/apt/apt.conf.d/80-retries
+```
+
+`86400` = 24 hours. This covers any realistic clock drift without disabling the check
+entirely. GPG signature verification is unaffected — `Max-FutureTime` only controls
+the `Date:` field timestamp comparison.
+
+#### 2. Inline `-o Acquire::Max-FutureTime=86400` on the `apt-get update` call in `apt-install-retry`
+
+The apt conf file is written in a prior Docker layer (and therefore cached). If the
+cache is cold or the retry script runs before the conf layer takes effect in edge cases,
+an inline option on every `apt-get update` call acts as a belt-and-suspenders measure:
+
+```sh
+# Before
+if apt-get update && apt-get -y install "$@"; then
+
+# After
+if apt-get -o Acquire::Max-FutureTime=86400 update \
+   && apt-get -y install "$@"; then
+```
+
+#### 3. `Acquire::Queue-Mode "host"` restored
+
+This setting had been accidentally commented out in a previous edit. It was restored
+alongside the other apt options. `Queue-Mode "host"` serialises downloads to one active
+connection per hostname, preventing the Hyper-V NAT conntrack 150-second idle timeout
+from killing a stalled CDN download mid-transfer (a separate, previously documented
+Windows-specific failure mode).
+
+### Verification
+
+With the fix applied, `docker build --no-cache --progress=plain -t kosson/koha-windows:latest .`
+progressed past the previously-failing layer and continued downloading `noble-updates`
+packages without any "not valid yet" errors. The `koha-common` install layer completed
+successfully.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `Dockerfile` | Replaced `Acquire::Check-Valid-Until "false"` with `Acquire::Max-FutureTime "86400"` in the apt conf `RUN` block; added inline `-o Acquire::Max-FutureTime=86400` to `apt-get update` in `apt-install-retry`; restored `Acquire::Queue-Mode "host"` (had been commented out) |
+
+---
+
+## 2026-05-08 — Docker image build fails at Node.js layer: nodesource TLS cert "not yet valid" (WSL2 clock drift, second instance)
+
+### Symptom
+
+After the apt `Max-FutureTime` fix landed, a second build attempt progressed further but
+failed at the `yarn install` step:
+
+```
+#21 0.436 gpg: no valid OpenPGP data found.
+#23 121.9 Certificate verification failed: The certificate chain uses not yet valid certificate.
+#23 DONE 128.2s
+...
+#25 error serialize-javascript@7.0.4: The engine "node" is incompatible with this module.
+       Expected version ">=20.0.0". Got "18.19.1"
+ERROR: failed to build ... exit code: 1
+```
+
+Layer `#21` fetched the nodesource GPG key via `wget https://deb.nodesource.com/gpgkey/...`.
+The TLS handshake silently failed (same clock drift: the cert's `notBefore` was in the
+future from the container's perspective), so `wget` received a TLS error page instead
+of the key. `gpg --dearmor` got garbage input and wrote an empty/invalid keyring file.
+
+When `apt-get update` later tried to refresh `deb.nodesource.com`, it also hit the TLS
+clock error and skipped the nodesource repo entirely. As a result, `apt-get install nodejs`
+installed Ubuntu's bundled **Node 18.19.1** (not nodesource Node 20). Koha's current
+`package.json` requires `serialize-javascript@7.0.4` which requires `node >= 20.0.0`,
+so `yarn install` failed with an engine incompatibility.
+
+### Root cause
+
+Same underlying cause as the apt `Max-FutureTime` issue — WSL2/Hyper-V VM clock lagging
+behind real time — but a different mechanism: HTTPS TLS cert validation (`notBefore`
+field) rather than apt Release file `Date` field comparison. `Acquire::Max-FutureTime`
+has no effect on TLS certificate validation.
+
+### Fix
+
+Two targeted changes to the nodesource setup layer in the Dockerfile:
+
+#### 1. `--no-check-certificate` on the `wget` GPG key fetch
+
+```dockerfile
+# Before
+RUN wget -O- -q https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor \
+    | tee /usr/share/keyrings/nodesource.gpg >/dev/null \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] ..."
+
+# After
+RUN wget --no-check-certificate -O- -q https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor \
+    | tee /usr/share/keyrings/nodesource.gpg >/dev/null \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] ..." \
+    && echo 'Acquire::https::deb.nodesource.com::Verify-Peer "false";' >  /etc/apt/apt.conf.d/86-nodesource-insecure \
+    && echo 'Acquire::https::deb.nodesource.com::Verify-Host "false";' >> /etc/apt/apt.conf.d/86-nodesource-insecure
+```
+
+#### 2. Per-host apt HTTPS insecure config for `deb.nodesource.com`
+
+`/etc/apt/apt.conf.d/86-nodesource-insecure` disables TLS peer and host verification
+for `deb.nodesource.com` only, so that `apt-get update` can fetch the nodesource index
+regardless of clock drift.
+
+**Security note:** Package *content* remains GPG-signature-verified via the
+`[signed-by=/usr/share/keyrings/nodesource.gpg]` option in the apt source line. Only
+the transport-layer TLS is bypassed for this one host. All other hosts (Ubuntu mirrors,
+Koha repo, etc.) are unaffected.
+
+### Verification
+
+With both fixes applied, the build completed all 32 layers successfully. Node 20.x was
+installed from nodesource, `yarn install` passed, and the image was tagged and pushed:
+
+```
+#37 naming to docker.io/kosson/koha-windows:latest done
+latest:  digest: sha256:32469cc325d81744c5d9d17e2b2267d15c8c5e7be461141368c64629221b4f53
+25.12.00: digest: sha256:32469cc325d81744c5d9d17e2b2267d15c8c5e7be461141368c64629221b4f53
+```
+
+`docker-compose.override.yml` (which had been bind-mounting host `files/run.sh` into
+the container as a workaround) was removed after the successful push since `run.sh` is
+now baked into the image at build time.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `Dockerfile` | `--no-check-certificate` on wget GPG key fetch; new apt conf `86-nodesource-insecure` for per-host TLS bypass |
+| `docker-compose.override.yml` | Deleted — workaround no longer needed |
+
+---
+
+## 2026-05-08 — Automatic OpenSearch admin password repair (`Repair-OpenSearchPassword` + `repair` command)
+
+### Goal
+
+Eliminate the manual multi-step procedure for fixing an OpenSearch admin password
+mismatch. The mismatch causes every Koha startup to fail because the container's
+OpenSearch wait loop receives HTTP 401 on every attempt and gives up after 60 retries.
+
+### Context
+
+The mismatch arises when `OPENSEARCH_INITIAL_ADMIN_PASSWORD` in `env/.env` (or
+`OpenSearch-3.6/.env`) does not match the bcrypt hash stored in
+`OpenSearch-3.6/assets/opensearch/config/os01/opensearch-security/internal_users.yml`.
+This can happen after:
+
+- Changing the password in `.env` without regenerating the hash in `internal_users.yml`.
+- A fresh `docker compose down -v` followed by a `start`, which re-seeds security from
+  the on-disk YAML files (so a stale hash recurs even if a live fix was previously
+  applied).
+- Cloning the repo on a machine where the committed hash does not match the local `.env`.
+
+Previously the fix required three manual steps: probing the current live password,
+calling the REST API to change it, and separately regenerating the bcrypt hash and
+updating `internal_users.yml` by hand.
+
+### Implementation
+
+A new function `Repair-OpenSearchPassword` was added to `stack-windows.ps1`. It runs
+fully automatically and is also available as an explicit `repair` command.
+
+#### Repair logic (5 steps)
+
+1. **Guard** — returns immediately if `os01` is not in `healthy` state.
+2. **Probe** — basic-auth GET against `/_cluster/health`. Returns without action if
+   HTTP 200 (password already correct). The `-Force` switch (used by the `repair`
+   command) skips this gate and always regenerates.
+3. **Hash generation** — runs `hash.sh` inside the `os01` container, passing the
+   password via an environment variable (`-e OS_PWD=...`) to avoid all shell quoting
+   problems with special characters:
+   ```powershell
+   docker exec -e "OS_PWD=$Password" os01 sh -c \
+     'JAVA_HOME=/usr/share/opensearch/jdk \
+      /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh \
+      -p "$OS_PWD" 2>/dev/null | tail -1'
+   ```
+4. **On-disk update** — rewrites all three `hash:` lines (`admin`, `dashboards`,
+   `kibanaserver`) in `internal_users.yml` using a regex replacement with `$$`-escaped
+   hash string (required because PowerShell's `-replace` operator treats `$` as a
+   backreference marker in replacement strings). Written with UTF-8 no-BOM encoding.
+5. **Live push** — runs `securityadmin.sh` inside `os01` using admin client-certificate
+   authentication. Because this uses TLS mutual-auth (not basic-auth), it succeeds even
+   when the admin password is wrong. Only the last 5 lines of securityadmin output are
+   printed to keep terminal noise low.
+6. **Verification** — re-probes basic-auth after a 3-second pause for the security
+   module to reload. Fails loudly with `Fail` if still returning non-200.
+
+#### Invocation
+
+| Context | Behaviour |
+|---|---|
+| `.\stack-windows.ps1 start` | Called automatically after `Wait-OpenSearchGreen`, before Koha is started. Skipped silently if the password is already correct. |
+| `.\stack-windows.ps1 repair` | Manual trigger. Runs with `-Force`, so the hash is always regenerated regardless of probe result. Useful after changing `OPENSEARCH_INITIAL_ADMIN_PASSWORD`. |
+
+#### Why `securityadmin.sh` instead of the REST API
+
+The REST Security API (`PUT /_plugins/_security/api/internalusers/admin`) requires a
+working admin password to authenticate. When the password is wrong, the API returns 401
+and the live fix fails. `securityadmin.sh` authenticates with the admin TLS client
+certificate instead — it can reload the security index at any time without needing the
+admin password.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `stack-windows.ps1` | Added `Repair-OpenSearchPassword` function; added `"repair"` to `ValidateSet`; wired auto-call into `Start-FullStack` after `Wait-OpenSearchGreen`; added `repair` switch case (calls with `-Force`); added `"repair"` to the flags-ignored warning guard |
+| `README.md` | Added "Automatic repair (built-in)" description with numbered steps in the password mismatch section; added `repair` to the Lifecycle commands table |
 
 ---

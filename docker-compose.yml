@@ -7,12 +7,14 @@ services:
             MYSQL_DATABASE: koha_${KOHA_INSTANCE:-kohadev}
             MYSQL_USER: koha_${KOHA_INSTANCE:-kohadev}
             MYSQL_PASSWORD: ${KOHA_DB_PASSWORD:-password}
+        volumes:
+            - koha-db-data:/var/lib/mysql
         networks:
             - kohanet
     koha:
+        image: ${KOHA_IMAGE_TAG:-kosson/koha-windows:latest}
         build:
             context: .
-            network: host
         depends_on:
             - db
             - memcached
@@ -98,6 +100,9 @@ services:
         command: memcached -m 64m
         networks:
             - kohanet
+
+volumes:
+    koha-db-data:
 
 networks:
     kohanet:

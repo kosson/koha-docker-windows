@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "restart", "status", "logs", "build", "health")]
+    [ValidateSet("start", "stop", "reset", "restart", "status", "logs", "build", "health", "repair", "opensearch", "traefik")]
     [string]$Command = "start",
     [switch]$BuildOpenSearch,
     [switch]$BuildKoha,
@@ -313,6 +313,18 @@ function Invoke-HealthCheck {
         ($raw | ConvertFrom-Json).status -eq "green"
     }
 
+    & $Check "OpenSearch admin password matches env" {
+        # Tests basic-auth from a probe container on the same network Koha uses.
+        # A 401 here means internal_users.yml hash does not match OPENSEARCH_INITIAL_ADMIN_PASSWORD.
+        $osUp = (& docker inspect --format "{{.State.Health.Status}}" os01 2>$null) -eq "healthy"
+        if (-not $osUp) { return $false }
+        $code = & docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+            -sk -u "admin:$($script:OpenSearchPassword)" `
+            -w "%{http_code}" -o /dev/null `
+            "https://os01:9200/_cluster/health" 2>$null
+        $code -eq "200"
+    }
+
     & $Check "Traefik container running" {
         $state = & docker inspect --format "{{.State.Status}}" traefik 2>$null
         $state -eq "running"
@@ -344,6 +356,19 @@ function Invoke-HealthCheck {
         $code -eq "200"
     }
 
+    & $Check "OpenSearch Dashboards accessible via Traefik" {
+        $traefikUp = (& docker inspect --format "{{.State.Status}}" traefik 2>$null) -eq "running"
+        $osUp = (& docker inspect --format "{{.State.Health.Status}}" os01 2>$null) -eq "healthy"
+        if (-not $traefikUp -or -not $osUp) { return $false }
+        $dashboardsHost = "dashboards.localhost"
+        $publicPort = if ($script:TraefikHttpPort -eq "80") { "" } else { ":$($script:TraefikHttpPort)" }
+        $code = & curl.exe -s -o NUL -w "%{http_code}" -L --max-time 15 `
+            -H "Host: $dashboardsHost" `
+            "http://localhost$publicPort" 2>$null
+        # Dashboards returns 200 on the login page or after redirect
+        $code -eq "200" -or $code -eq "302"
+    }
+
     Write-Host ""
     if ($counts.fail -eq 0) {
         Write-Host ("All {0} checks passed." -f $counts.pass) -ForegroundColor Green
@@ -364,6 +389,111 @@ function Print-Urls {
     Write-Host ""
     Write-Host "Demo data mode: $($script:LoadDemoData)"
     Write-Host ""
+}
+
+function Repair-OpenSearchPassword {
+    # Detects a password mismatch between OPENSEARCH_INITIAL_ADMIN_PASSWORD (env/.env) and
+    # the bcrypt hash stored in internal_users.yml, then auto-repairs both the live cluster
+    # and the on-disk config file so the fix survives a cold start (down -v).
+    #
+    # Repair steps:
+    #   1. Probe basic-auth against /_cluster/health. Return immediately if it passes.
+    #   2. Generate a new bcrypt hash with hash.sh running inside the os01 container.
+    #   3. Rewrite all three hash: lines in internal_users.yml on disk.
+    #   4. Push the updated config into the live cluster with securityadmin.sh
+    #      (uses admin client-cert auth — works even when the password is wrong).
+    #   5. Verify with another probe. Fail loudly if still broken.
+
+    param([switch]$Force)
+
+    $Password = $script:OpenSearchPassword
+
+    # Skip entirely when os01 is not healthy (e.g. cluster not yet started).
+    $state = & docker inspect --format "{{.State.Health.Status}}" os01 2>$null
+    if ($state -ne "healthy") {
+        Write-Warn "os01 is not healthy ($state); skipping password check."
+        return
+    }
+
+    Write-Info "Checking OpenSearch admin password..."
+    $code = & docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+        -sk -u "admin:$Password" -w "%{http_code}" -o /dev/null `
+        "https://os01:9200/_cluster/health" 2>$null
+
+    if ($code -eq "200" -and -not $Force) {
+        Write-Ok "OpenSearch admin password matches env."
+        return
+    }
+
+    if ($code -ne "200") {
+        Write-Warn "Password mismatch detected (HTTP $code). Repairing..."
+    } else {
+        Write-Info "Force-updating OpenSearch admin password..."
+    }
+
+    # --- Step 1: generate bcrypt hash ----------------------------------------
+    # Pass the password via an environment variable so no shell quoting is needed.
+    Write-Info "Generating bcrypt hash..."
+    $hash = & docker exec `
+        -e "OS_PWD=$Password" `
+        os01 `
+        sh -c 'JAVA_HOME=/usr/share/opensearch/jdk /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p "$OS_PWD" 2>/dev/null | tail -1'
+
+    if (-not $hash -or $hash -notmatch '^\$2') {
+        Fail "hash.sh did not return a valid bcrypt hash. Output: '$hash'"
+    }
+    Write-Info "Hash generated."
+
+    # --- Step 2: update internal_users.yml on disk ---------------------------
+    $internalUsersPath = Join-Path $script:OpenSearchDir `
+        "assets\opensearch\config\os01\opensearch-security\internal_users.yml"
+
+    Write-Info "Updating $internalUsersPath ..."
+
+    # In -replace replacement strings, $$ = literal $.
+    # We must escape every $ in $hash so -replace does not treat them as backrefs.
+    $hashEscaped = $hash.Replace('$', '$$')
+    # Build replacement: $1 (capture group = "  hash: ") followed by quoted hash.
+    $replacement = '$1"' + $hashEscaped + '"'
+
+    $content = Get-Content $internalUsersPath -Raw
+    $content  = $content -replace '(?m)(  hash: )"[^"]*"', $replacement
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($internalUsersPath, $content, $utf8NoBom)
+    Write-Ok "internal_users.yml updated on disk."
+
+    # --- Step 3: push config to live cluster via securityadmin ---------------
+    # securityadmin uses the admin client certificate — it does not need the
+    # admin user password, so this works regardless of what the current password is.
+    Write-Info "Applying security config to live cluster (securityadmin)..."
+    $secadminCmd = `
+        'JAVA_HOME=/usr/share/opensearch/jdk' + `
+        ' /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh' + `
+        ' -cd /usr/share/opensearch/config/opensearch-security' + `
+        ' -icl -nhnv' + `
+        ' -cert  /usr/share/opensearch/config/admin.pem' + `
+        ' -key   /usr/share/opensearch/config/admin-key.pem' + `
+        ' -cacert /usr/share/opensearch/config/root-ca.pem' + `
+        ' -h os01 2>&1'
+
+    $secadminOut = & docker exec os01 sh -c $secadminCmd
+    # Print only the last 5 lines to keep output tidy.
+    ($secadminOut -split "`n" | Select-Object -Last 5) | ForEach-Object { Write-Host "  $_" }
+
+    # --- Step 4: verify -------------------------------------------------------
+    Write-Info "Verifying new password (waiting 3 s for reload)..."
+    Start-Sleep -Seconds 3
+    $code2 = & docker run --rm --network opensearch-36_osearch curlimages/curl:latest `
+        -sk -u "admin:$Password" -w "%{http_code}" -o /dev/null `
+        "https://os01:9200/_cluster/health" 2>$null
+
+    if ($code2 -eq "200") {
+        Write-Ok "OpenSearch admin password repaired and verified."
+    } else {
+        Fail ("Password repair was applied but verification returned HTTP $code2. " +
+              "Check securityadmin output above.")
+    }
 }
 
 function Start-FullStack {
@@ -388,6 +518,7 @@ function Start-FullStack {
     Invoke-OpenSearchCompose @("up", "-d")
     Write-Ok "OpenSearch containers started."
     Wait-OpenSearchGreen -Password $script:OpenSearchPassword
+    Repair-OpenSearchPassword
 
     Write-Info "Starting Traefik..."
     Invoke-TraefikCompose @("up", "-d", "traefik")
@@ -445,6 +576,33 @@ function Restart-KohaQuick {
     }
 }
 
+function Start-OpenSearchOnly {
+    if ($BuildOpenSearch) {
+        Write-Info "Building OpenSearch images..."
+        Invoke-OpenSearchCompose @("build")
+        Write-Ok "OpenSearch images built."
+    }
+
+    Write-Info "Starting OpenSearch cluster..."
+    Invoke-OpenSearchCompose @("up", "-d")
+    Write-Ok "OpenSearch containers started."
+    Wait-OpenSearchGreen -Password $script:OpenSearchPassword
+
+    Write-Host ""
+    Write-Host "  OpenSearch API: https://localhost:9200"
+    Write-Host "  Dashboards:     http://dashboards.localhost"
+    Write-Host ""
+}
+
+function Start-TraefikOnly {
+    Write-Info "Starting Traefik..."
+    Invoke-TraefikCompose @("up", "-d", "traefik")
+    Write-Ok "Traefik started."
+    Write-Host ""
+    Write-Host "  Traefik dashboard: http://localhost:$($script:TraefikDashboardPort)"
+    Write-Host ""
+}
+
 function Stop-All {
     Write-Info "Stopping Koha container..."
     Invoke-KohaCompose @("stop", "koha")
@@ -455,6 +613,28 @@ function Stop-All {
     Write-Info "Stopping Traefik..."
     Invoke-TraefikCompose @("stop", "traefik")
     Write-Ok "All services stopped."
+}
+
+function Reset-All {
+    Write-Warn "This will stop all containers, remove them, and delete their volumes."
+    Write-Warn "Images will be preserved. This cannot be undone."
+    $answer = Read-Host "Type 'yes' to confirm"
+    if ($answer -ne "yes") {
+        Write-Info "Reset cancelled."
+        return
+    }
+
+    Write-Info "Removing Koha containers and volumes..."
+    Invoke-KohaCompose @("down", "--volumes")
+
+    Write-Info "Removing OpenSearch containers and volumes..."
+    Invoke-OpenSearchCompose @("down", "--volumes")
+
+    Write-Info "Removing Traefik containers..."
+    # Traefik has no named volumes; --volumes is a no-op but included for consistency.
+    Invoke-TraefikCompose @("down", "--volumes")
+
+    Write-Ok "Reset complete. All containers and volumes removed. Images are intact."
 }
 
 # Resolve core paths.
@@ -473,7 +653,7 @@ if ($NoDemoData -and $WithDemoData) {
     Fail "Use either -NoDemoData or -WithDemoData, not both."
 }
 
-if (($Command -eq "stop" -or $Command -eq "status" -or $Command -eq "logs") -and ($NoDemoData -or $WithDemoData -or $NoFreshDb)) {
+if (($Command -eq "stop" -or $Command -eq "reset" -or $Command -eq "status" -or $Command -eq "logs" -or $Command -eq "repair" -or $Command -eq "opensearch" -or $Command -eq "traefik") -and ($NoDemoData -or $WithDemoData -or $NoFreshDb)) {
     Write-Warn "Flags -NoDemoData, -WithDemoData and -NoFreshDb are ignored for command '$Command'."
 }
 
@@ -539,12 +719,19 @@ Write-Host "  Koha + OpenSearch Windows Stack Manager"
 Write-Host "============================================="
 Write-Host ""
 
+# Ensure the frontend network exists before any service is started.
+# This is idempotent and safe to run for every command.
+Ensure-FrontendNetwork
+
 switch ($Command) {
     "start" {
         Start-FullStack
     }
     "stop" {
         Stop-All
+    }
+    "reset" {
+        Reset-All
     }
     "restart" {
         Restart-KohaQuick
@@ -558,6 +745,9 @@ switch ($Command) {
     }
     "health" {
         Invoke-HealthCheck
+    }
+    "repair" {
+        Repair-OpenSearchPassword -Force
     }
     "build" {
         if (-not $BuildOpenSearch -and -not $BuildKoha) {
@@ -574,5 +764,11 @@ switch ($Command) {
             Invoke-KohaCompose @("build", "koha")
             Write-Ok "Koha image built."
         }
+    }
+    "opensearch" {
+        Start-OpenSearchOnly
+    }
+    "traefik" {
+        Start-TraefikOnly
     }
 }

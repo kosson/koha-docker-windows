@@ -226,6 +226,7 @@ In case you messed up bad, open Docker desktop, stop all the containers, delete 
 
 After the happy message, you may close the PowerShell. From now on you will relly only on Docker Desktop.
 
+You should be patient with this last step because it takes a lot of time to complete.
 Opening Docker Desktop you should have a status like the one in the following screenshot:
 
 ![](DockerDesktop-Usage.png)
@@ -245,23 +246,45 @@ First, open Docker Desktop. Then start the OpenSearch cluster, and wait for 5 to
 From repository root:
 
 ```powershell
-.\stack-windows.ps1 start
-.\stack-windows.ps1 stop
-.\stack-windows.ps1 restart
-.\stack-windows.ps1 status
-.\stack-windows.ps1 logs
-.\stack-windows.ps1 build
+.\stack-windows.ps1 start       # Start the full stack (OpenSearch → Traefik → MariaDB → Koha)
+.\stack-windows.ps1 stop        # Stop all services (volumes preserved)
+.\stack-windows.ps1 restart     # Restart Koha, MariaDB and Memcached (OpenSearch stays up)
+.\stack-windows.ps1 status      # Show container state and OpenSearch cluster health
+.\stack-windows.ps1 logs        # Tail Koha container logs
+.\stack-windows.ps1 build       # Build/rebuild all images (OpenSearch + Koha)
+.\stack-windows.ps1 health      # Run all health checks and report pass/fail per check
+.\stack-windows.ps1 repair      # Detect and fix OpenSearch admin password mismatch
+.\stack-windows.ps1 reset       # DESTRUCTIVE: stop all containers and delete all volumes
+.\stack-windows.ps1 opensearch  # Start the OpenSearch cluster only (without Koha/Traefik)
+.\stack-windows.ps1 traefik     # Start Traefik only
 ```
 
-Useful flags:
+### Command details
+
+| Command | What it does |
+|---|---|
+| `start` | Brings up the full stack in the correct startup order. Auto-repairs OpenSearch password if mismatched. Optionally tails Koha logs. |
+| `stop` | Stops all containers. Named volumes and data are preserved. |
+| `restart` | Recreates the Koha container (and ensures MariaDB/Memcached are up). OpenSearch is expected to already be running. |
+| `status` | Prints `docker compose ps` for each sub-stack and the OpenSearch cluster health JSON. |
+| `logs` | Tails the Koha container log stream. Press Ctrl+C to stop. |
+| `build` | Builds or rebuilds Docker images. Without flags builds both OpenSearch and Koha images. |
+| `health` | Runs a suite of pass/fail checks: network, OpenSearch health, password auth, Traefik, MariaDB, Memcached, Koha, and Dashboards. |
+| `repair` | Detects an OpenSearch admin password mismatch and repairs it — regenerates the bcrypt hash, updates `internal_users.yml` on disk, and pushes the change live via `securityadmin.sh`. Safe to run at any time while the cluster is up. |
+| `reset` | Stops and removes all containers **and their volumes** (database, OpenSearch indices, etc.). Images are kept. Asks for confirmation. |
+| `opensearch` | Starts only the OpenSearch cluster (useful for debugging or manual indexing). |
+| `traefik` | Starts only the Traefik reverse proxy. |
+
+### Useful flags
 
 ```powershell
-.\stack-windows.ps1 start -Build
-.\stack-windows.ps1 start -BuildOpenSearch
-.\stack-windows.ps1 start -BuildKoha
-.\stack-windows.ps1 start -NoFreshDb
-.\stack-windows.ps1 start -NoLogs
-.\stack-windows.ps1 start -NoDemoData
+.\stack-windows.ps1 start -Build            # Rebuild all images before starting
+.\stack-windows.ps1 start -BuildOpenSearch  # Rebuild only the OpenSearch image before starting
+.\stack-windows.ps1 start -BuildKoha        # Rebuild only the Koha image before starting
+.\stack-windows.ps1 start -NoFreshDb        # Skip the database drop/recreate step
+.\stack-windows.ps1 start -NoLogs           # Do not tail logs after startup
+.\stack-windows.ps1 start -NoDemoData       # Skip demo data population
+.\stack-windows.ps1 start -WithDemoData     # Force demo data population (overrides env default)
 .\stack-windows.ps1 restart -WithDemoData
 ```
 
