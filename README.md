@@ -184,25 +184,6 @@ or for the melodramatic Windows, as above:
 powershell.exe -ExecutionPolicy Bypass -File .\stack-windows.ps1 start
 ```
 
-If an error like the following stops the setup process, just run the script again. The possible error:
-
-```powershell
-[INFO ] Resetting database 'koha_kohadev'...
---------------
-GRANT ALL PRIVILEGES ON koha_kohadev.* TO 'koha_kohadev'@'%'
---------------
-
-ERROR 1133 (28000) at line 3: Can't find any matching row in the user table
-Failed to reset database 'koha_kohadev'.
-At C:\Users\Alina\Documents\koha-docker-windows\stack-windows.ps1:19 char:35
-+ function Fail([string]$Message) { throw $Message }
-+                                   ~~~~~~~~~~~~~~
-    + CategoryInfo          : OperationStopped: (Failed to reset database 'koha_kohadev'.:String) [], RuntimeException
-    + FullyQualifiedErrorId : Failed to reset database 'koha_kohadev'.
-```
-
-Tip: use `-NoLogs` if you do not want log tailing after startup.
-
 Confirm any messages from Docker Desktop concerning access to networks.
 
 First, the OpenSearch cluster is formed, then the Traefik container, MariaDB and Memcached, and finally the Koha container. Following is a succession of mesages you should see:
@@ -235,13 +216,19 @@ After everything went well and you are able to access the Koha administrator and
 
 ### Closing sequence
 
-If you have finished work and you want to close down the application, in Docker Desktop, in Container section (see left menu) select first the `opensearch-36` name. This is a service orchestrating all the containers which form an OpenSearch cluster. This is the indexing engine of your Koha application. Once ticked, press stop buton in the right side. Then close the `traefik` container, and in the end the `koha-docker-windows` one.
+If you have finished work and you want to close down the application use `.\stack-windows.ps1 stop` command in PowerShell.
 
 ### Start sequence
 
-First, open Docker Desktop. Then start the OpenSearch cluster, and wait for 5 to 6 minutes. This time is necessary for the cluster to form. Then, start traefik, and in the end run the command in the PowerShell ypu'll open in the root directory: `.\stack-windows.ps1 start`.
+First, open Docker Desktop. Then start the OpenSearch cluster, and wait for 5 to 6 minutes. This time is necessary for the cluster to form. Then, start the services running the command `.\stack-windows.ps1 start` in PowerShell.
+
+### Reset everything
+
+If you messed up the installation, do not fret. Run `.\stack-windows.ps1 reset` commnad. this will stop and delete all the containers and the volumes. You may start again now running `.\stack-windows.ps1 start` command.
 
 ## Lifecycle commands
+
+The following set of commands should be used to manage the services.
 
 From repository root:
 
