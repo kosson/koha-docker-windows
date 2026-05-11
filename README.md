@@ -51,6 +51,8 @@ Download the code for the project from this repo. Look at the green button `Code
 
 Now, the `koha-docker-windows` subfolder will be referred to as the _root folder_ from now on.
 
+One more little step after you have installed Docker Desktop. This version needs a Docker image you need to download. Run the following command in PowerShell: `docker pull curlimages/curl:latest`. Now, let's procede to the quick start.
+
 ## Quick start
 
 1. We need all the source code of Koha ILS, so, being in the root folder of your project, run in the PowerShell in the root of the project:
